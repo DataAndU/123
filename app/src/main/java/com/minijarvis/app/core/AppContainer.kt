@@ -3,6 +3,10 @@ package com.minijarvis.app.core
 import android.content.Context
 import com.minijarvis.app.assistant.AssistantEngine
 import com.minijarvis.app.assistant.VoiceOutputManager
+import com.minijarvis.app.control.AppLauncher
+import com.minijarvis.app.control.ContactsHelper
+import com.minijarvis.app.control.PhoneActionsManager
+import com.minijarvis.app.control.SystemControlManager
 import com.minijarvis.app.data.AppDatabase
 import com.minijarvis.app.data.AppUsageRepository
 import com.minijarvis.app.data.CallLogRepository
@@ -20,6 +24,7 @@ import com.minijarvis.app.reports.ReportGenerator
 import com.minijarvis.app.search.SmartSearchEngine
 import com.minijarvis.app.security.PassphraseStore
 import com.minijarvis.app.system.AppUsageHelper
+import com.minijarvis.app.system.AssistantSettingsStore
 import com.minijarvis.app.system.CallLogHelper
 import com.minijarvis.app.system.LocationHelper
 import com.minijarvis.app.system.ReminderScheduler
@@ -57,8 +62,14 @@ class AppContainer(private val appContext: Context) {
     val imageAnalyzer: ImageAnalyzer by lazy { ImageAnalyzer() }
     val voiceOutputManager: VoiceOutputManager by lazy { VoiceOutputManager(appContext) }
 
+    val appLauncher: AppLauncher by lazy { AppLauncher(appContext) }
+    val systemControlManager: SystemControlManager by lazy { SystemControlManager(appContext) }
+    val contactsHelper: ContactsHelper by lazy { ContactsHelper(appContext) }
+    val phoneActionsManager: PhoneActionsManager by lazy { PhoneActionsManager(appContext, contactsHelper) }
+
     val assistantEngine: AssistantEngine by lazy {
         AssistantEngine(
+            appContext = appContext,
             expenseRepository = expenseRepository,
             foodRepository = foodRepository,
             medicineRepository = medicineRepository,
@@ -67,9 +78,14 @@ class AppContainer(private val appContext: Context) {
             taskRepository = taskRepository,
             chatRepository = chatRepository,
             reminderScheduler = reminderScheduler,
-            searchEngine = searchEngine
+            searchEngine = searchEngine,
+            appLauncher = appLauncher,
+            systemControlManager = systemControlManager,
+            phoneActionsManager = phoneActionsManager
         )
     }
+
+    val assistantSettingsStore: AssistantSettingsStore by lazy { AssistantSettingsStore(appContext) }
 
     val reportGenerator: ReportGenerator by lazy {
         ReportGenerator(

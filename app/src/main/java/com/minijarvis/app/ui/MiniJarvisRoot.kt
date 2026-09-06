@@ -63,7 +63,7 @@ fun MiniJarvisRoot(container: AppContainer) {
                             scope.launch { drawerState.close() }
                             navController.navigate(destination.route) {
                                 launchSingleTop = true
-                                popUpTo(Destinations.DASHBOARD.route) { saveState = true }
+                                popUpTo(Destinations.CHAT.route) { saveState = true }
                                 restoreState = true
                             }
                         },
@@ -87,7 +87,7 @@ fun MiniJarvisRoot(container: AppContainer) {
         ) { padding ->
             NavHost(
                 navController = navController,
-                startDestination = Destinations.DASHBOARD.route,
+                startDestination = Destinations.CHAT.route,
                 modifier = Modifier.padding(padding)
             ) {
                 composable(Destinations.DASHBOARD.route) { DashboardScreen(container, navController) }

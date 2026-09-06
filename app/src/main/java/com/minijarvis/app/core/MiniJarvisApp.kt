@@ -26,9 +26,17 @@ class MiniJarvisApp : Application() {
                 NotificationManager.IMPORTANCE_HIGH
             ).apply { description = "Task and medicine reminders" }
         )
+        manager.createNotificationChannel(
+            NotificationChannel(
+                WAKE_WORD_CHANNEL_ID,
+                "Wake word listening",
+                NotificationManager.IMPORTANCE_LOW
+            ).apply { description = "Shown while Mini JARVIS is listening in the background for its wake word" }
+        )
     }
 
     companion object {
         const val REMINDER_CHANNEL_ID = "minijarvis_reminders"
+        const val WAKE_WORD_CHANNEL_ID = "minijarvis_wake_word"
     }
 }

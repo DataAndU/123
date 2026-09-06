@@ -27,8 +27,24 @@
         android:name="android.permission.PACKAGE_USAGE_STATS"
         tools:ignore="ProtectedPermissions" />
 
-    <!-- Local reminder notifications -->
+    <!-- Local reminder notifications, and the wake-word listening notification -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- "Whole phone" control: calls, texts, contact lookup for call-by-name -->
+    <uses-permission android:name="android.permission.CALL_PHONE" />
+    <uses-permission android:name="android.permission.SEND_SMS" />
+    <uses-permission android:name="android.permission.READ_SMS" />
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
+
+    <!-- Screen brightness control — a special permission granted via Settings, like PACKAGE_USAGE_STATS above -->
+    <uses-permission
+        android:name="android.permission.WRITE_SETTINGS"
+        tools:ignore="ProtectedPermissions" />
+
+    <!-- The always-listening wake-word service runs as a foreground service with a persistent notification -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <!--
       ML Kit's transitive "vision-internal-vkp" library declares INTERNET and
@@ -45,6 +61,18 @@
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
     <uses-feature android:name="android.hardware.location" android:required="false" />
+
+    <!--
+      Android 11+ package visibility: needed for "open <app>" to see every
+      launchable app via PackageManager.queryIntentActivities, without the
+      much broader QUERY_ALL_PACKAGES permission.
+    -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
 
     <application
         android:name=".core.MiniJarvisApp"
@@ -83,6 +111,44 @@
                 <action android:name="android.service.notification.NotificationListenerService" />
             </intent-filter>
         </service>
+
+        <!--
+          Optional module: the "whole phone" control surface — reads on-screen
+          text and performs taps/global navigation (home/back/screenshot/lock)
+          only while the user has manually enabled this in system Settings.
+          Android requires that manual step for every Accessibility Service;
+          no app can turn this on for itself.
+        -->
+        <service
+            android:name=".control.JarvisAccessibilityService"
+            android:exported="true"
+            android:label="@string/accessibility_service_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
+
+        <!--
+          Optional module: always-listening wake word. A foreground service so
+          the background microphone use is always visible via a persistent
+          notification with a one-tap "Stop listening" action.
+        -->
+        <service
+            android:name=".assistant.WakeWordService"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
+
+        <receiver
+            android:name=".system.BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
 
     </application>
 </manifest>

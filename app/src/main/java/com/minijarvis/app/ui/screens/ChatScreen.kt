@@ -78,7 +78,8 @@ fun ChatScreen(container: AppContainer) {
 
     Column(modifier = Modifier.fillMaxSize().padding(12.dp)) {
         Text(
-            "Fully offline assistant — no messages ever leave this device.",
+            "Fully offline assistant — no messages ever leave this device. Try \"call mom\", " +
+                "\"open camera\", \"turn on the flashlight\", or \"what's on my screen\".",
             style = MaterialTheme.typography.bodySmall
         )
         voiceError?.let {

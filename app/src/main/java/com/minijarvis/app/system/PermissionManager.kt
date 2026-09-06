@@ -28,6 +28,11 @@ object PermissionManager {
             arrayOf(Manifest.permission.POST_NOTIFICATIONS)
         else emptyArray()
 
+    /** Phone & message control — each still degrades gracefully without it (see PhoneActionsManager). */
+    val CALLING = arrayOf(Manifest.permission.CALL_PHONE)
+    val MESSAGING = arrayOf(Manifest.permission.SEND_SMS, Manifest.permission.READ_SMS)
+    val CONTACTS = arrayOf(Manifest.permission.READ_CONTACTS)
+
     fun hasAll(context: Context, permissions: Array<String>): Boolean =
         permissions.all { ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED }
 

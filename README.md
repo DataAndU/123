@@ -34,11 +34,71 @@ feature runs on-device; there is no backend server, no cloud storage, and no
   input will fail cleanly rather than the app silently going online — see
   *Known limitations* below.
 
+## Mini JARVIS is a voice assistant first
+
+The Chat screen is the app's start destination — talk or type to it and it
+routes your request to whichever module actually handles it. Every other
+screen (Expenses, Food, Habits, Reports, ...) still exists and works exactly
+as before for manual entry/browsing, reachable from the drawer, but they are
+no longer the primary way in.
+
+What makes this a real "access to my whole phone" assistant rather than a
+chatbot bolted onto some trackers:
+
+- **Open any app**: "open camera", "launch spotify".
+- **Calls & texts**: "call mom", "text mom saying I'm on my way" — resolves
+  contact names via `ContactsContract`, dials directly if `CALL_PHONE`/
+  `SEND_SMS` are granted, otherwise opens the dialer/SMS pre-filled so it
+  still works with fewer permissions granted.
+- **System controls**: volume, screen brightness, flashlight, Do Not
+  Disturb — direct API calls, no Accessibility Service needed.
+- **WiFi / Bluetooth**: "turn on wifi" — Android 10+ no longer lets a
+  regular app silently flip these radios, so this opens the relevant
+  settings panel and (if the Accessibility Service below is enabled) tries
+  to tap the toggle for you; reliability varies by phone/OEM, and it always
+  falls back to "you tap it" if accessibility isn't on.
+- **Whole-screen control** (needs the Accessibility Service, see below):
+  "what's on my screen" (reads it aloud/back to you), "tap settings", "go
+  home", "go back", "take a screenshot", "lock my phone".
+- **Always-listening wake word** ("Jarvis, ..."): optional, off by default,
+  toggled in Settings — see *Wake word: how it stays offline* below.
+
+## The Accessibility Service — the actual "whole phone" permission
+
+`control/JarvisAccessibilityService.kt` is what lets the assistant read the
+screen and tap things in *other* apps, not just its own. This is the most
+powerful permission on Android, which is exactly why the platform requires
+a human to turn it on manually from system Settings (Settings → Accessibility
+→ Mini JARVIS Phone Control) — no app, this one included, can enable it for
+itself. Every capability that needs it fails with a clear "enable
+Accessibility in Settings" message rather than silently doing nothing until
+it's granted, and it can be revoked at any time from the same place it was
+granted.
+
+## Wake word: how it stays offline
+
+An "always listening" assistant normally means a dedicated wake-word engine
+(e.g. Picovoice Porcupine) — but every one of those needs an `INTERNET`
+permission for periodic license checks against the vendor's servers, even
+though the audio itself never leaves the device. That's a real compromise
+against this app's zero-network identity, so it wasn't used here. Instead,
+`assistant/WakeWordListener.kt` repeatedly restarts Android's own on-device
+`SpeechRecognizer` (the same one used for on-demand voice chat) and checks
+each short utterance for the word "Jarvis" — zero new dependencies, zero new
+permission. The honest trade-offs: a brief gap between listening cycles
+(restart isn't instantaneous), more battery cost than a lightweight
+wake-word classifier since each cycle does full speech-to-text, and the same
+per-device offline-recognizer caveat that already applies to voice chat.
+`assistant/WakeWordService.kt` runs this as a foreground service with a
+persistent, low-priority notification and a one-tap "Stop listening" — a
+background microphone should never be invisible.
+
 ## Modules
 
 | Module | Screen | Notes |
 |---|---|---|
-| Text & voice chat | `Chat` | Rule-based local NLU (`assistant/IntentParser.kt`) routes commands to every other module; on-device TTS/STT. |
+| Text & voice chat | `Chat` | Rule-based local NLU (`assistant/IntentParser.kt`) routes commands to every other module, plus every whole-phone control command below; on-device TTS/STT; **the app's start screen**. |
+| Phone & app control | `Settings → Phone & App Control` | Open apps, call/text, system toggles, and the Accessibility Service grant — see above. |
 | Image capture & analysis | `Vision` | CameraX capture → ML Kit on-device image labeling, saved locally (no text/OCR — see below). |
 | Expense tracker | `Expenses` | Amount/category/note, running totals. |
 | Food tracker | `Food` | Meal type, calories, notes. |
@@ -50,16 +110,16 @@ feature runs on-device; there is no backend server, no cloud storage, and no
 | Music history | same screen | `NotificationListenerService` reads *only* media-session title/artist metadata, never notification text. |
 | Reports | `Reports` | Daily/weekly/monthly aggregates computed from local data. |
 | Smart search | `Smart Search` | Natural-language-ish search (date phrases + keywords) across every module. |
-| Settings & privacy | `Settings & Privacy` | Permission status at a glance, and an "erase all local data" action. |
+| Settings & privacy | `Settings & Privacy` | Permission status at a glance, wake word toggle, Accessibility grant, and an "erase all local data" action. |
 
 ## Permissions — minimal and opt-in
 
 No permission is requested at launch. Each optional module requests its own
-permission only when the user opens that screen, and every module remains
-fully usable (just empty) without it:
+permission only when the user opens that screen or turns on that feature,
+and every module remains fully usable (just doing less) without it:
 
-- `RECORD_AUDIO` — voice chat only.
-- `CAMERA` — image capture only.
+- `RECORD_AUDIO` — voice chat and the wake word listener.
+- `CAMERA` — image capture, and the flashlight control (torch access).
 - `READ_CALL_LOG` — call history only.
 - `ACCESS_FINE_LOCATION` / `ACCESS_COARSE_LOCATION` — on-demand "log my
   current location" only; there is no background location tracking.
@@ -67,20 +127,38 @@ fully usable (just empty) without it:
   the app usage stats module.
 - Notification Listener access (no manifest permission — granted per-app in
   system Settings) — for the music "now playing" history module.
-- `POST_NOTIFICATIONS` — local task/medicine reminder notifications.
+- `POST_NOTIFICATIONS` — local task/medicine reminders, and the wake-word
+  listening notification.
+- `CALL_PHONE` — dial directly by voice; without it, "call X" opens the
+  dialer pre-filled instead.
+- `SEND_SMS` / `READ_SMS` — send texts by voice, and "read my last message";
+  without `SEND_SMS`, texting falls back to a clear error rather than
+  silently failing.
+- `READ_CONTACTS` — resolve a spoken name ("mom") to a phone number for
+  calls/texts; without it, only raw numbers work.
+- `WRITE_SETTINGS` — a special permission (granted via Settings, like
+  `PACKAGE_USAGE_STATS`) for voice-controlled screen brightness.
+- Do Not Disturb access (no manifest permission — granted via Settings) —
+  for ringer-volume changes and toggling DND.
+- The Accessibility Service (see above) — screen reading/tapping,
+  home/back/recents/lock/screenshot, and the WiFi/Bluetooth toggle
+  workaround. Manually enabled in system Settings; Android does not allow
+  an app to grant this to itself.
+- `FOREGROUND_SERVICE` / `FOREGROUND_SERVICE_MICROPHONE` / `RECEIVE_BOOT_COMPLETED`
+  — the wake-word listening service and its restart after a reboot, only
+  if wake word was left on.
 
-Two more permissions show up in the *built APK* that aren't in the app's own
-source manifest, both injected by libraries and both unrelated to
-networking: `WAKE_LOCK`, `RECEIVE_BOOT_COMPLETED`, and `FOREGROUND_SERVICE`
-come from WorkManager's own manifest (used internally to run and
-reschedule local reminder jobs reliably) — this is standard for any app
-using WorkManager and cannot be removed without breaking reminders.
+Two more permissions show up in the *built APK* that aren't requested for
+any user-facing feature, both injected by libraries and both unrelated to
+networking: `WAKE_LOCK` comes from WorkManager's own manifest (used
+internally to run and reschedule local reminder jobs reliably) — standard
+for any app using WorkManager and not removable without breaking reminders.
 ML Kit's transitive `vision-internal-vkp` library separately injects
 `INTERNET` and `ACCESS_NETWORK_STATE` (for Google-side telemetry on the
 inference pipeline, not for the on-device inference itself); those two
 *are* explicitly stripped in `AndroidManifest.xml` via `tools:node="remove"`
-so the shipped APK has zero network-capable permissions — verified with
-`aapt dump badging` against the built debug APK.
+so the shipped APK still has zero network-capable permissions — verified
+by inspecting the merged manifest Gradle actually produced.
 
 ## Architecture
 
@@ -90,10 +168,14 @@ Plain, dependency-injection-framework-free Kotlin + Jetpack Compose:
 core/        Application class + AppContainer (manual composition root)
 data/        Room entities, DAOs, AppDatabase (SQLCipher-backed), repositories
 security/    Keystore-backed passphrase generation/storage
-assistant/   Local intent parser, assistant engine, voice input/output
+assistant/   Local intent parser, assistant engine, voice input/output,
+             wake-word listener + foreground service
+control/     AppLauncher, SystemControlManager, PhoneActionsManager,
+             ContactsHelper, JarvisAccessibilityService — the "whole phone" layer
 vision/      ML Kit image analysis
 system/      Permission checks, call log / location / usage-stats / music
-             listener helpers, local reminder scheduling
+             listener helpers, local reminder scheduling, wake-word settings,
+             boot receiver
 reports/     Daily/weekly/monthly aggregation
 search/      Cross-module smart search
 ui/          Compose navigation + one screen per module
@@ -145,6 +227,19 @@ directly — never ship a real release that way.)
 - **UI strings are in English** in this pass; the architecture (Compose +
   `strings.xml`) supports adding a `values-ta/` resource set for Tamil
   localization as a follow-up.
+- **WiFi/Bluetooth voice toggling is best-effort.** Android 10+ removed the
+  API for a regular app to flip these radios silently; the Accessibility
+  Service tries to find and tap the toggle in the settings panel Android
+  opens, but the exact screen layout varies by OEM/Android version, so this
+  is the one control command that isn't guaranteed to actually work —
+  it always at least gets you to the right screen to tap it yourself.
+- **The Accessibility Service's screen-reading/tapping is generic**, not
+  tuned per-app: it walks the visible accessibility tree for matching text.
+  This works well for straightforward UIs and less well for apps that draw
+  custom views without proper accessibility labels.
+- **Wake word detection is not instantaneous or perfectly reliable** — see
+  *Wake word: how it stays offline* above for the specific trade-offs
+  versus a dedicated wake-word engine.
 - **Compiles and packages cleanly, but has not been run on a device or
   emulator.** A real Android SDK was installed in this environment and
   `./gradlew assembleDebug` produces a working, installable
@@ -153,7 +248,12 @@ directly — never ship a real release that way.)
   emulator/device available here to actually launch it and click through
   each screen, so treat the debug APK as "builds clean, UI/runtime
   behavior unverified" rather than fully tested — install it on a device
-  and exercise each module before relying on it.
+  and exercise each module before relying on it. This applies doubly to
+  the whole-phone control features added afterward: the Accessibility
+  Service, wake word, and call/SMS/contacts permissions all need a real
+  device with real permission grants and were verified only by confirming
+  the merged manifest carries the right permissions/services/receivers and
+  that the code compiles and packages — not by watching them run.
 
 ## Privacy summary
 

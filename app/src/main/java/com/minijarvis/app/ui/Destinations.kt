@@ -34,7 +34,7 @@ object Destinations {
     val SETTINGS = Destination("settings", "Settings & Privacy", Icons.Filled.Settings)
 
     val drawerItems = listOf(
-        DASHBOARD, CHAT, CAMERA, EXPENSES, FOOD, MEDICINE, WEIGHT,
+        CHAT, DASHBOARD, CAMERA, EXPENSES, FOOD, MEDICINE, WEIGHT,
         HABITS, TASKS, SYSTEM_DATA, REPORTS, SEARCH, SETTINGS
     )
 }
