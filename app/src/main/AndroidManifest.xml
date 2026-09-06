@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!--
+      Mini JARVIS declares NO android.permission.INTERNET and NO network
+      access permission anywhere in this manifest. Every feature below is
+      backed by an on-device Android API and every permission is requested
+      at runtime, only when the user opens the matching optional module.
+    -->
+
+    <!-- Voice chat (on-device speech recognition + text-to-speech) -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+    <!-- Image capture and on-device analysis -->
+    <uses-permission android:name="android.permission.CAMERA" />
+
+    <!-- Optional: call history module -->
+    <uses-permission android:name="android.permission.READ_CALL_LOG" />
+
+    <!-- Optional: location/visit history module -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
+    <!-- Optional: app usage statistics module (special access, granted via Settings) -->
+    <uses-permission
+        android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
+
+    <!-- Local reminder notifications -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <uses-feature android:name="android.hardware.camera.any" android:required="false" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
+    <uses-feature android:name="android.hardware.location" android:required="false" />
+
+    <application
+        android:name=".core.MiniJarvisApp"
+        android:allowBackup="false"
+        android:fullBackupContent="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:theme="@style/Theme.MiniJarvis"
+        android:usesCleartextTraffic="false"
+        android:supportsRtl="true">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:theme="@style/Theme.MiniJarvis">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!--
+          Optional module: reads currently-playing media session metadata
+          (title/artist only) purely on-device to build a local music
+          history log. Requires the user to explicitly grant Notification
+          Access in system Settings; disabled until then.
+        -->
+        <service
+            android:name=".system.MusicListenerService"
+            android:exported="true"
+            android:label="@string/music_history_listener_label"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
+    </application>
+</manifest>
