@@ -1,0 +1,74 @@
+# DigitalOcean App Platform spec for the Prosperity Online backend.
+#
+# This repo (dataandu/123) is a monorepo — this service builds only the
+# prosperity-server/ subdirectory. Replace the `github.repo`/`branch`
+# below if you fork or move it. See DEPLOY.md for the full walkthrough
+# (doctl and web-console versions).
+name: prosperity-server
+region: nyc
+
+services:
+  - name: api
+    github:
+      repo: dataandu/123
+      branch: claude/life-economy-simulator
+      deploy_on_push: true
+    source_dir: prosperity-server
+    dockerfile_path: prosperity-server/Dockerfile
+    http_port: 4000
+    instance_count: 1
+    instance_size_slug: basic-xxs
+    health_check:
+      http_path: /health
+      initial_delay_seconds: 10
+    envs:
+      - key: DATABASE_URL
+        scope: RUN_AND_BUILD_TIME
+        value: ${db.DATABASE_URL}
+      - key: DATABASE_SSL
+        value: "true"
+      - key: JWT_SECRET
+        type: SECRET
+        value: "REPLACE_WITH_A_LONG_RANDOM_STRING"
+      - key: JWT_EXPIRES_IN
+        value: "30d"
+      - key: TICK_INTERVAL_MS
+        value: "300000"
+      - key: MARKET_DATA_PROVIDER
+        value: "simulated"
+      - key: ALPHAVANTAGE_API_KEY
+        type: SECRET
+        value: ""
+      - key: FRED_API_KEY
+        type: SECRET
+        value: ""
+      - key: GOOGLE_PLAY_PACKAGE_NAME
+        value: "com.prosperity.game"
+      - key: GOOGLE_SERVICE_ACCOUNT_JSON
+        type: SECRET
+        value: ""
+      - key: BILLING_DEV_MODE
+        value: "false"
+
+# Runs `npm run migrate` before every deploy, against the same database.
+jobs:
+  - name: migrate
+    kind: PRE_DEPLOY
+    github:
+      repo: dataandu/123
+      branch: claude/life-economy-simulator
+    source_dir: prosperity-server
+    dockerfile_path: prosperity-server/Dockerfile
+    run_command: npm run migrate:prod
+    envs:
+      - key: DATABASE_URL
+        scope: RUN_AND_BUILD_TIME
+        value: ${db.DATABASE_URL}
+      - key: DATABASE_SSL
+        value: "true"
+
+databases:
+  - name: db
+    engine: PG
+    version: "16"
+    production: false
