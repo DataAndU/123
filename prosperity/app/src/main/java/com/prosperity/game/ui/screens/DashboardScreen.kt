@@ -2,14 +2,13 @@ package com.prosperity.game.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.material3.Button
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Card
+import androidx.compose.material3.Divider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -17,93 +16,119 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.prosperity.game.engine.economy.BusinessCyclePhase
-import com.prosperity.game.engine.game.GameState
-import com.prosperity.game.engine.player.FinanceEngine
-import com.prosperity.game.ui.GameViewModel
+import com.prosperity.game.ui.OnlineViewModel
+import com.prosperity.game.ui.components.Chip
 import com.prosperity.game.ui.components.LineChart
 import com.prosperity.game.ui.components.SectionHeader
 import com.prosperity.game.ui.components.StatCard
-import com.prosperity.game.ui.components.changeColor
 import com.prosperity.game.ui.components.formatMoney
 import com.prosperity.game.ui.components.formatMoneyShort
+import com.prosperity.game.network.dto.LIFESTYLE_TIERS
 
 @Composable
-fun DashboardScreen(viewModel: GameViewModel) {
-    val state by viewModel.uiState.collectAsState()
-    val game = state.game ?: return
-    val netWorth = FinanceEngine.netWorth(game.player, game.markets)
+fun DashboardScreen(viewModel: OnlineViewModel) {
+    val uiState by viewModel.uiState.collectAsState()
+    val player = uiState.player
+    val economy = uiState.economy
 
-    LazyVerticalGrid(
-        columns = GridCells.Fixed(2),
-        modifier = Modifier.fillMaxSize().padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(2) }) {
-            Column {
-                Text("Month ${game.economy.month} — ${game.gameMode.displayName}", style = MaterialTheme.typography.titleMedium)
-                Text("${game.progressionTier.displayName} tier", style = MaterialTheme.typography.bodySmall)
+    LazyColumn(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        item {
+            Text("Welcome, ${player?.displayName ?: "..."}", style = MaterialTheme.typography.headlineSmall)
+            Text(
+                if (uiState.isConnected) "Connected — ${uiState.onlineCount} players online" else "Connecting...",
+                style = MaterialTheme.typography.labelMedium,
+                color = if (uiState.isConnected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+            )
+        }
+
+        item {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                StatCard("Net Worth", formatMoneyShort(player?.netWorth ?: 0.0), Modifier.weight(1f))
+                StatCard("Cash", formatMoneyShort(player?.cash ?: 0.0), Modifier.weight(1f))
+                StatCard("Wallet Coins", "${(player?.walletCoins ?: 0.0).toInt()}", Modifier.weight(1f))
             }
         }
-        item { StatCard("Cash", formatMoney(game.player.cash)) }
-        item { StatCard("Bank Savings", formatMoney(game.player.bankSavings)) }
-        item { StatCard("Net Worth", formatMoneyShort(netWorth), valueColor = changeColor(netWorth)) }
-        item { StatCard("Debt", formatMoney(totalDebt(game))) }
-        item { StatCard("Happiness", "${game.player.happiness.toInt()}/100") }
-        item { StatCard("Health", "${game.player.health.toInt()}/100") }
 
-        item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(2) }) {
-            Card(Modifier.fillMaxWidth()) {
+        item {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                StatCard("Happiness", "${(player?.happiness ?: 0.0).toInt()}/100", Modifier.weight(1f))
+                StatCard("Health", "${(player?.health ?: 0.0).toInt()}/100", Modifier.weight(1f))
+                StatCard("Reputation", "${(player?.reputation ?: 0.0).toInt()}/100", Modifier.weight(1f))
+            }
+        }
+
+        item {
+            Card(Modifier.fillMaxWidth().padding(top = 8.dp)) {
                 Column(Modifier.padding(12.dp)) {
-                    SectionHeader("Economy: ${phaseLabel(game.economy.phase)}", infoTerm = "Recession")
-                    Text("GDP Growth: ${"%.1f".format(game.economy.gdpGrowthRate)}% • Inflation: ${"%.1f".format(game.economy.inflationRate)}%")
-                    Text("Unemployment: ${"%.1f".format(game.economy.unemploymentRate)}% • Interest Rate: ${"%.1f".format(game.economy.interestRate)}%")
-                }
-            }
-        }
-
-        item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(2) }) {
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(12.dp)) {
-                    SectionHeader("Net Worth History", infoTerm = "Net Worth")
-                    LineChart(game.player.netWorthHistory, lineColor = MaterialTheme.colorScheme.primary)
-                }
-            }
-        }
-
-        if (game.eventLog.isNotEmpty()) {
-            item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(2) }) {
-                Card(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(12.dp)) {
-                        Text("Latest News", style = MaterialTheme.typography.titleMedium)
-                        val last = game.eventLog.last()
-                        Text("${last.title}: ${last.outcomeSummary}", style = MaterialTheme.typography.bodySmall)
+                    SectionHeader("The Economy", infoTerm = "GDP Growth")
+                    if (economy != null) {
+                        Text("Phase: ${economy.phase} (month ${economy.month}, ${economy.phaseMonthsElapsed} months in)")
+                        Text("GDP growth: ${"%.2f".format(economy.gdpGrowthRate)}%  •  Unemployment: ${"%.1f".format(economy.unemploymentRate)}%")
+                        Text("Inflation: ${"%.2f".format(economy.inflationRate)}%  •  Interest rate: ${"%.2f".format(economy.interestRate)}%")
+                        Text("Data source: ${economy.dataSource}", style = MaterialTheme.typography.labelSmall)
+                    } else {
+                        Text("Loading economy data...")
                     }
                 }
             }
         }
 
-        item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(2) }) {
-            if (game.isGameOver) {
-                Text(game.gameOverReason ?: "Game over.", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.titleMedium)
-            } else {
-                Button(onClick = { viewModel.advanceMonth() }, modifier = Modifier.fillMaxWidth()) {
-                    Text("Advance to Next Month")
+        if (uiState.economyHistory.size >= 2) {
+            item {
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(12.dp)) {
+                        SectionHeader("GDP Growth History")
+                        LineChart(uiState.economyHistory.map { it.gdpGrowthRate })
+                    }
                 }
             }
         }
+
+        item {
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(12.dp)) {
+                    SectionHeader("Lifestyle")
+                    Text("Choosing a higher lifestyle tier raises your monthly cost of living but boosts happiness.")
+                    Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        LIFESTYLE_TIERS.forEach { tier ->
+                            Chip(tier, selected = player?.lifestyleTier == tier, onClick = { viewModel.setLifestyle(tier) })
+                        }
+                    }
+                }
+            }
+        }
+
+        if (!player?.loans.isNullOrEmpty()) {
+            item { Text("Personal Loans", style = MaterialTheme.typography.titleMedium) }
+            items(player!!.loans) { loan ->
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(12.dp)) {
+                        Text("${loan.type} loan — ${formatMoney(loan.principalRemaining)} remaining")
+                        Text("Payment ${formatMoney(loan.monthlyPayment)}/mo at ${loan.annualRate}% APR, ${loan.termMonthsRemaining} months left", style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+            }
+        }
+
+        if (!player?.properties.isNullOrEmpty()) {
+            item { Text("Properties", style = MaterialTheme.typography.titleMedium) }
+            items(player!!.properties) { property ->
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(12.dp)) {
+                        Text("Purchased at ${formatMoney(property.purchasePrice)}")
+                        Text("Mortgage balance: ${formatMoney(property.mortgageBalance)} • Rent income: ${formatMoney(property.monthlyRentIncome)}/mo", style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+            }
+        }
+
+        item { Divider(Modifier.padding(vertical = 8.dp)) }
+        item {
+            Text(
+                "Net worth change (savings, dividends, coupons, rent, and expenses) is applied automatically every in-game month by the server — you don't need to be online for your finances to move.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
     }
-}
-
-private fun totalDebt(game: GameState): Double =
-    game.player.loans.sumOf { it.principalRemaining } +
-        game.player.properties.sumOf { it.mortgageBalance } +
-        game.player.businesses.sumOf { it.loanBalance }
-
-private fun phaseLabel(phase: BusinessCyclePhase): String = when (phase) {
-    BusinessCyclePhase.EXPANSION -> "Expansion"
-    BusinessCyclePhase.PEAK -> "Peak"
-    BusinessCyclePhase.RECESSION -> "Recession"
-    BusinessCyclePhase.TROUGH -> "Trough"
 }

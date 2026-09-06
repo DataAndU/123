@@ -3,7 +3,6 @@ package com.prosperity.game.ui.screens
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -11,11 +10,16 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Slider
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -24,139 +28,123 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.prosperity.game.engine.business.Business
-import com.prosperity.game.engine.business.BusinessCatalog
-import com.prosperity.game.engine.business.BusinessSimulator
-import com.prosperity.game.engine.business.BusinessType
-import com.prosperity.game.ui.GameViewModel
-import com.prosperity.game.ui.components.LineChart
+import com.prosperity.game.network.dto.BUSINESS_TYPE_CATALOG
+import com.prosperity.game.network.dto.BusinessRecord
+import com.prosperity.game.ui.OnlineViewModel
+import com.prosperity.game.ui.components.SectionHeader
 import com.prosperity.game.ui.components.formatMoney
 
 @Composable
-fun BusinessesScreen(viewModel: GameViewModel) {
-    val state by viewModel.uiState.collectAsState()
-    val game = state.game ?: return
+fun BusinessesScreen(viewModel: OnlineViewModel) {
+    val uiState by viewModel.uiState.collectAsState()
+    val businesses = uiState.player?.businesses ?: emptyList()
     var showStartDialog by remember { mutableStateOf(false) }
-    var expandedId by remember { mutableStateOf<String?>(null) }
+    var expandedBusiness by remember { mutableStateOf<BusinessRecord?>(null) }
 
-    LazyColumn(Modifier.fillMaxSize().padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        item {
-            Button(onClick = { showStartDialog = true }, modifier = Modifier.fillMaxWidth()) { Text("Start a New Business") }
+    Scaffold(
+        floatingActionButton = {
+            FloatingActionButton(onClick = { showStartDialog = true }) { Icon(Icons.Filled.Add, contentDescription = "Start business") }
         }
-        items(game.player.businesses, key = { it.id }) { business ->
-            BusinessCard(
-                business = business,
-                expanded = expandedId == business.id,
-                onToggleExpand = { expandedId = if (expandedId == business.id) null else business.id },
-                viewModel = viewModel
-            )
-        }
-        if (game.player.businesses.isEmpty()) {
-            item { Text("You don't own any businesses yet.", style = MaterialTheme.typography.bodyMedium) }
+    ) { padding ->
+        LazyColumn(Modifier.fillMaxWidth().padding(padding).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            item { Text("My Businesses", style = MaterialTheme.typography.headlineSmall) }
+            if (businesses.isEmpty()) {
+                item { Text("You don't own any businesses yet. Tap + to start one.") }
+            }
+            items(businesses) { business ->
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(12.dp)) {
+                        Text("${business.name} (${business.type})", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            "Level ${business.level} • ${business.employees} employees • ${formatMoney(business.businessCash)} cash • loan ${formatMoney(business.loanBalance)}",
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                        Row(Modifier.padding(top = 8.dp)) {
+                            TextButton(onClick = { expandedBusiness = business }) { Text("Manage") }
+                        }
+                    }
+                }
+            }
         }
     }
 
     if (showStartDialog) {
-        StartBusinessDialog(playerCash = game.player.cash, onDismiss = { showStartDialog = false }) { type, name ->
-            viewModel.startBusiness(type, name)
-            showStartDialog = false
-        }
-    }
-}
-
-@Composable
-private fun BusinessCard(business: Business, expanded: Boolean, onToggleExpand: () -> Unit, viewModel: GameViewModel) {
-    val spec = BusinessCatalog.specs.getValue(business.type)
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(12.dp)) {
-            Row(Modifier.fillMaxWidth()) {
-                Column(Modifier.weight(1f)) {
-                    Text(business.name, style = MaterialTheme.typography.titleSmall)
-                    Text("${spec.displayName} • Level ${business.level} • ${business.employees} employees")
-                    Text("Reputation ${business.reputation.toInt()} • Competition ${business.competitionPressure.toInt()}")
-                    Text("Business cash: ${formatMoney(business.businessCash)} • Loan: ${formatMoney(business.loanBalance)}")
-                }
-                TextButton(onClick = onToggleExpand) { Text(if (expanded) "Hide" else "Manage") }
-            }
-            if (business.history.isNotEmpty()) {
-                Text("Monthly profit history", style = MaterialTheme.typography.labelSmall)
-                LineChart(business.history.map { it.profit }, showRangeLabels = false)
-            }
-            if (expanded) {
-                BusinessControls(business, spec.startupCost, viewModel)
-            }
-        }
-    }
-}
-
-@Composable
-private fun BusinessControls(business: Business, startupCost: Double, viewModel: GameViewModel) {
-    var priceSlider by remember(business.id) { mutableStateOf(business.pricePointMultiplier.toFloat()) }
-    var adBudgetText by remember(business.id) { mutableStateOf(business.advertisingBudgetMonthly.toInt().toString()) }
-    var loanAmountText by remember { mutableStateOf("") }
-    var transferAmountText by remember { mutableStateOf("") }
-
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = { viewModel.updateBusiness(business.id) { BusinessSimulator.hire(it) } }) { Text("Hire") }
-            Button(onClick = { viewModel.updateBusiness(business.id) { BusinessSimulator.fire(it) } }) { Text("Fire") }
-            Button(onClick = { viewModel.updateBusiness(business.id) { BusinessSimulator.upgrade(it) } }) { Text("Upgrade (${formatMoney(business.upgradeCost)})") }
-        }
-
-        Text("Price point: ${"%.2f".format(priceSlider)}x market")
-        Slider(
-            value = priceSlider,
-            onValueChange = { priceSlider = it },
-            valueRange = 0.5f..2.0f,
-            onValueChangeFinished = { viewModel.updateBusiness(business.id) { BusinessSimulator.setPrice(it, priceSlider.toDouble()) } }
+        StartBusinessDialog(
+            cash = uiState.player?.cash ?: 0.0,
+            onDismiss = { showStartDialog = false },
+            onStart = { type, name -> viewModel.startBusiness(type, name); showStartDialog = false }
         )
+    }
 
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedTextField(value = adBudgetText, onValueChange = { adBudgetText = it }, label = { Text("Ad budget/mo") }, modifier = Modifier.weight(1f))
-            Button(onClick = { adBudgetText.toDoubleOrNull()?.let { viewModel.updateBusiness(business.id) { b -> BusinessSimulator.setAdvertising(b, it) } } }) { Text("Set") }
-        }
-
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedTextField(value = loanAmountText, onValueChange = { loanAmountText = it }, label = { Text("Loan amount") }, modifier = Modifier.weight(1f))
-            Button(onClick = { loanAmountText.toDoubleOrNull()?.let { amt -> viewModel.updateBusiness(business.id) { BusinessSimulator.takeLoan(it, amt, 8.0) } } }) { Text("Borrow") }
-            Button(onClick = { loanAmountText.toDoubleOrNull()?.let { amt -> viewModel.updateBusiness(business.id) { BusinessSimulator.repayLoan(it, amt) } } }) { Text("Repay") }
-        }
-
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedTextField(value = transferAmountText, onValueChange = { transferAmountText = it }, label = { Text("Amount") }, modifier = Modifier.weight(1f))
-            Button(onClick = { transferAmountText.toDoubleOrNull()?.let { viewModel.withdrawBusinessProfit(business.id, it) } }) { Text("Withdraw") }
-            Button(onClick = { transferAmountText.toDoubleOrNull()?.let { viewModel.injectBusinessCapital(business.id, it) } }) { Text("Inject") }
-        }
-
-        Button(onClick = { viewModel.closeBusiness(business.id) }) { Text("Close Business") }
+    expandedBusiness?.let { business ->
+        ManageBusinessDialog(business = business, viewModel = viewModel, onDismiss = { expandedBusiness = null })
     }
 }
 
 @Composable
-private fun StartBusinessDialog(playerCash: Double, onDismiss: () -> Unit, onConfirm: (BusinessType, String) -> Unit) {
-    var selectedType by remember { mutableStateOf(BusinessType.RESTAURANT) }
+private fun StartBusinessDialog(cash: Double, onDismiss: () -> Unit, onStart: (type: String, name: String) -> Unit) {
     var name by remember { mutableStateOf("") }
+    var selectedType by remember { mutableStateOf(BUSINESS_TYPE_CATALOG.first()) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Start a New Business") },
+        title = { Text("Start a Business") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                BusinessType.entries.forEach { type ->
-                    val spec = BusinessCatalog.specs.getValue(type)
-                    Row(Modifier.fillMaxWidth()) {
-                        androidx.compose.material3.RadioButton(selected = selectedType == type, onClick = { selectedType = type })
-                        Column {
-                            Text("${spec.displayName} — ${formatMoney(spec.startupCost)}")
+            Column {
+                Text("Your cash: ${formatMoney(cash)}", style = MaterialTheme.typography.labelSmall)
+                OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Business name") }, modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp))
+                BUSINESS_TYPE_CATALOG.forEach { spec ->
+                    Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                        TextButton(onClick = { selectedType = spec }) {
+                            Text((if (selectedType.id == spec.id) "> " else "") + "${spec.displayName} — ${formatMoney(spec.startupCost)}")
                         }
                     }
                 }
-                OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Business name") }, modifier = Modifier.fillMaxWidth())
-                val cost = BusinessCatalog.specs.getValue(selectedType).startupCost
-                Text(if (cost > playerCash) "Not enough cash (need ${formatMoney(cost)})" else "Cost: ${formatMoney(cost)}")
             }
         },
-        confirmButton = { Button(onClick = { onConfirm(selectedType, name) }) { Text("Start") } },
+        confirmButton = {
+            Button(onClick = { onStart(selectedType.id, name.ifBlank { selectedType.displayName }) }, enabled = cash >= selectedType.startupCost) { Text("Start") }
+        },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
+}
+
+@Composable
+private fun ManageBusinessDialog(business: BusinessRecord, viewModel: OnlineViewModel, onDismiss: () -> Unit) {
+    var amountText by remember { mutableStateOf("100") }
+    val amount = amountText.toDoubleOrNull() ?: 0.0
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(business.name) },
+        text = {
+            Column {
+                Text("Employees: ${business.employees} • Level ${business.level} • Reputation ${"%.0f".format(business.reputation)}")
+                Text("Price multiplier: ${"%.2f".format(business.pricePointMultiplier)}x • Ad budget: ${formatMoney(business.advertisingBudgetMonthly)}/mo")
+                Row(Modifier.padding(vertical = 8.dp)) {
+                    OutlinedButton(onClick = { viewModel.hireEmployee(business.id) }) { Text("Hire") }
+                    TextButton(onClick = { viewModel.fireEmployee(business.id) }) { Text("Fire") }
+                }
+                Row {
+                    OutlinedButton(onClick = { viewModel.setBusinessPrice(business.id, (business.pricePointMultiplier + 0.1).coerceAtMost(2.0)) }) { Text("Price +") }
+                    TextButton(onClick = { viewModel.setBusinessPrice(business.id, (business.pricePointMultiplier - 0.1).coerceAtLeast(0.5)) }) { Text("Price -") }
+                }
+                Row {
+                    OutlinedButton(onClick = { viewModel.upgradeBusiness(business.id) }, enabled = business.level < 5) { Text("Upgrade") }
+                    TextButton(onClick = { viewModel.setBusinessAdvertising(business.id, business.advertisingBudgetMonthly + 200) }) { Text("Ad budget +$200") }
+                }
+                OutlinedTextField(value = amountText, onValueChange = { amountText = it }, label = { Text("Amount") }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
+                Row(Modifier.padding(top = 4.dp)) {
+                    TextButton(onClick = { viewModel.withdrawFromBusiness(business.id, amount) }) { Text("Withdraw") }
+                    TextButton(onClick = { viewModel.injectIntoBusiness(business.id, amount) }) { Text("Inject") }
+                    TextButton(onClick = { viewModel.takeBusinessLoan(business.id, amount, 8.0) }) { Text("Loan") }
+                    TextButton(onClick = { viewModel.repayBusinessLoan(business.id, amount) }) { Text("Repay") }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { viewModel.closeBusiness(business.id); onDismiss() }) { Text("Close Business") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Done") } }
     )
 }

@@ -1,113 +1,110 @@
-# Prosperity — Life & Economy Simulator
+# Prosperity Online — Android Client
 
-A fully offline Android economics/business/investing simulation game. No
-backend, no cloud save, no `INTERNET` permission — everything runs and
-persists locally on the device.
+The Android client for **Prosperity Online**, a real-time, real-people
+economics simulator. This app is online-only: there is no local game engine
+or save file anymore — every simulation (economy, markets, businesses,
+personal finance) runs on the server in
+[`prosperity-server/`](../prosperity-server), and this client is a thin,
+fully-functional UI + networking layer over it.
 
-## What's actually simulated (not just flavor text)
+See `prosperity-server/README.md` for how the simulation itself works
+(business cycle, market pricing, business P&L, personal finance tick) and
+`prosperity-server/DEPLOY.md` for how to actually stand up a server.
 
-- **Macro economy** (`engine/economy`): a four-phase business cycle
-  (expansion → peak → recession → trough) drives GDP growth; unemployment
-  responds to growth surprises (a simplified Okun's Law); inflation responds
-  to the output gap and money supply with mean reversion to a target; the
-  central bank sets interest rates with a Taylor-rule-like reaction function
-  to inflation and unemployment gaps. A cost-of-living index compounds with
-  inflation and feeds directly into the player's lifestyle expenses.
-- **Markets** (`engine/market`): six stocks across sectors with different
-  betas/cyclicality, three bonds (priced with a duration-based model that
-  pulls to par as they approach maturity, with real coupon income and
-  maturity payouts), gold and oil (safe-haven vs. cyclical behavior), a
-  housing price index driven mainly by interest rates, and a currency pair
-  with a simple interest-rate-differential drift.
-- **Businesses** (`engine/business`): 7 types (restaurant, grocery store,
-  tech startup, manufacturing, transport, construction, online business),
-  each with real revenue = f(employees, productivity/level, economy phase,
-  consumer confidence, reputation, price point, competition, advertising),
-  real expenses (salaries that track inflation, rent, inventory cost, loan
-  interest), real corporate tax, reputation that drifts based on your
-  pricing and investment, and competitive pressure that grows over time
-  unless you defend against it.
-- **Personal finance** (`engine/player`): a job ladder gated by education
-  and skills, real loan amortization (with interest/principal split every
-  month), savings interest, dividend/coupon/rental income, personal income
-  tax, and happiness/health that respond to your actual income-to-expense
-  ratio and lifestyle choices — not just flat numbers.
-- **28 events** (`engine/event`), each with 2–3 real choices and a plain-English
-  educational note — recessions, rate hikes/cuts, inflation spikes, stimulus,
-  tax policy, stock crashes/rallies, housing booms/crashes, oil shocks,
-  supply shortages, new competitors, tech breakthroughs, job offers,
-  medical/car expenses, hot stock tips, windfalls, natural disasters, a
-  pandemic-style shock, and more. Every option produces a mechanically real
-  outcome — nothing is cosmetic.
+## What this client does
 
-## Game modes & progression
-
-Career, Free Economy (sandbox, no bankruptcy), Business Tycoon (starts with
-seed debt), Investor (more capital, weaker jobs), Crisis Survival (starts
-mid-recession, survive N months), and Challenge (hit a net-worth target
-before a deadline) — all built on the same engine via `Scenarios.kt`, plus
-4 difficulty levels that scale starting cash, expenses, event severity, and
-bankruptcy leniency. Progression runs Beginner → Skilled → Entrepreneur →
-Seasoned Investor → Business Tycoon → Economic Master by net worth, with 12
-achievements and a local leaderboard of your own past runs.
+- **Accounts**: register/login against the server's JWT auth, with the
+  server address itself editable on the login screen (there's no fixed
+  production URL — you deploy your own server, see DEPLOY.md).
+- **Real-time**: a Socket.IO connection carries the world clock's tick
+  broadcasts, live trade prints from other players, chat, presence, and
+  marketplace order updates. Everything else is plain REST (Retrofit).
+- **Dashboard**: net worth, cash, wallet coins, happiness/health/reputation,
+  the shared economy's current phase/GDP/inflation/rates, lifestyle tier.
+- **Career**: job ladder (apply/quit, gated by education + skills), skill
+  training, education enrollment.
+- **Markets**: live stocks/bonds/commodities with buy/sell dialogs; trades
+  from other players show up as they happen.
+- **Business**: start/manage businesses (hire/fire, pricing, advertising,
+  upgrades, loans, withdraw/inject capital, close).
+- **Bank**: savings, personal loans, real estate (buy/sell), foreign currency
+  exchange.
+- **Social**: global chat, friend requests, user search.
+- **Marketplace**: browse and buy other players' listings; sellers fulfill
+  orders through placed → accepted → producing → delivered; manage your own
+  listings and both sides of your orders.
+- **Wallet**: real-money coin purchases via Google Play Billing, spent only
+  in the marketplace — coins never convert back to real money (see the
+  server's README for why that boundary is deliberate).
 
 ## Architecture
 
 ```
-engine/economy/   Macro simulation (business cycle, inflation, rates, tax)
-engine/market/    Stocks, bonds, commodities, real estate, currency pricing
-engine/business/  7 business types + their monthly P&L simulation
-engine/player/    Jobs, education, skills, loans, savings, net worth, actions
-engine/event/     28 event definitions + weighted selection + educational notes
-engine/game/      Orchestrates one monthly tick across every engine above,
-                  scenarios, achievements, progression, leaderboard model
-save/             Local JSON save/load (slots, autosave, export/import)
-ui/               Compose screens, a ViewModel, and two from-scratch
-                  Canvas chart composables (no charting library dependency)
+network/          Retrofit ApiService + DTOs matching the server's JSON
+                   exactly, ApiClient (auth interceptor, rebuildable base
+                   URL), SocketManager (Socket.IO client + typed event flows)
+data/             TokenStore (encrypted JWT + server URL), GameRepository
+                   (every network call wrapped as a Result<T>)
+billing/          BillingManager — Google Play Billing Library integration
+ui/               OnlineViewModel (single source of UI state, merges REST
+                   refreshes with live socket events), Compose screens,
+                   navigation drawer + bottom nav
+ui/components/    Reusable chart/stat/chip composables (no dependency on
+                   any game-specific model — safe to reuse as-is)
 ```
 
-Every engine package depends only on the ones below it in that list (event
-depends on economy/market/player; game depends on all of them) — nothing
-depends on `ui`, so the simulation is fully testable without Android.
+There is no `engine/` or `save/` package anymore — deleted along with the
+offline single-player mode when this app moved online. The server is the
+only source of truth for game state; the client never computes financial
+outcomes itself, only displays what the server returns and sends the
+player's intents (apply for a job, buy a stock, hire an employee, ...).
 
-## Time model
+## Running against a server
 
-Progression is by **month**, advanced with an explicit "Advance to Next
-Month" button rather than a real-time clock — a deliberate choice for a
-turn-based economic strategy game (in the spirit of tycoon/management sims):
-it keeps every tick deterministic and reviewable, and avoids any
-energy-system or forced-wait mechanic.
-
-## Save system
-
-All saves are plain JSON in the app's private storage
-(`context.filesDir/saves/`): 5 manual slots, one autosave (written after
-every month and every event resolution), and export/import through the
-Storage Access Framework document picker — no storage permission needed on
-API 26+, and the exported file is a normal `.json` you can back up anywhere.
+1. Get a Prosperity server running (locally for dev, or deployed — see
+   `prosperity-server/DEPLOY.md`).
+2. On the login screen, set "Server address" to that server's URL
+   (defaults to `http://10.0.2.2:4000/`, the Android emulator's alias for
+   your host machine's `localhost:4000` — convenient if you're running the
+   server locally with `npm run dev` while testing in the emulator).
+3. Register an account and play. A debug build allows plain `http://`; a
+   release build requires `https://` (see `src/debug/AndroidManifest.xml`
+   vs. the main manifest) since a real deployment should be behind TLS.
 
 ## Building
 
 ```
-./gradlew assembleDebug     # ~16MB, unminified
+./gradlew assembleDebug     # unminified, allows cleartext http:// for local dev
 ./gradlew assembleRelease   # R8-minified; unsigned — sign with your own key to distribute
 ```
 
 Minimum SDK 26, target/compile SDK 34. No Android SDK is bundled in this
 repo — install one via Android Studio or `sdkmanager` first.
 
-## Known limitations
+## What's verified vs. what needs your own setup
 
-- **Compiles and runs the build cleanly** (verified with a real Android SDK
-  in this environment — `assembleDebug` succeeds with no errors), but there
-  was no emulator/device available to click through the UI. Install the
-  APK and play a few months before treating this as fully verified.
-- **One instrument universe, not a full exchange.** 6 stocks, 3 bonds, gold
-  and oil — enough to teach diversification and sector behavior, not a
-  simulation of thousands of tickers.
-- **A single foreign currency pair**, not a multi-currency forex market.
-- **Housing is one national index**, not per-region pricing.
-- **Real-time/daily granularity was intentionally left out** in favor of a
-  monthly tick — see *Time model* above.
-- **The event catalog is static** (28 hand-written events); it doesn't
-  generate novel events procedurally.
+**Verified in this environment:**
+- `./gradlew assembleDebug` succeeds end-to-end with the real Android SDK
+  and every dependency (Retrofit, OkHttp, socket.io-client, security-crypto,
+  Play Billing Library) resolving and compiling cleanly.
+- Every network DTO's field names were cross-checked against the actual
+  server route/repository code (not guessed), and the server side of every
+  endpoint this client calls was exercised directly (curl + a live
+  two-client WebSocket session) during backend development — see
+  `prosperity-server/README.md`'s "What's verified" section.
+
+**Needs your own setup to fully verify:**
+- **No emulator or device was available in this environment** to click
+  through the UI against a live server. Install the APK on a device/emulator
+  pointed at a running server and play through registration, a trade, a
+  business, and a marketplace order before treating the UI itself as fully
+  proven — the wiring is real, but no one has watched it render yet.
+- **Google Play Billing** requires real in-app products configured in the
+  Google Play Console under this app's package name, and a signed release
+  build uploaded there — this client can launch the purchase flow and
+  verify tokens against the server, but can't create Play Console products
+  for you.
+- **Socket auth** uses a `token` query parameter (not the `auth` handshake
+  object) because that's the more reliably-typed option across
+  socket.io-client-java versions; the server accepts either, so this only
+  matters if you write another client.

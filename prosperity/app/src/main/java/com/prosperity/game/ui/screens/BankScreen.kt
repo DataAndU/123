@@ -3,7 +3,6 @@ package com.prosperity.game.ui.screens
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -11,8 +10,10 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -21,31 +22,32 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.prosperity.game.engine.player.LifestyleTier
-import com.prosperity.game.engine.player.PlayerActions
-import com.prosperity.game.ui.GameViewModel
-import com.prosperity.game.ui.components.Chip
+import com.prosperity.game.ui.OnlineViewModel
 import com.prosperity.game.ui.components.SectionHeader
 import com.prosperity.game.ui.components.formatMoney
 
 @Composable
-fun BankScreen(viewModel: GameViewModel) {
-    val state by viewModel.uiState.collectAsState()
-    val game = state.game ?: return
-    var savingsAmount by remember { mutableStateOf("") }
-    var loanAmount by remember { mutableStateOf("") }
+fun BankScreen(viewModel: OnlineViewModel) {
+    val uiState by viewModel.uiState.collectAsState()
+    val player = uiState.player
+    val markets = uiState.markets
 
-    LazyColumn(Modifier.fillMaxSize().padding(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    var savingsAmount by remember { mutableStateOf("500") }
+    var loanAmount by remember { mutableStateOf("5000") }
+    var currencyAmount by remember { mutableStateOf("500") }
+
+    LazyColumn(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        item { Text("Bank", style = MaterialTheme.typography.headlineSmall) }
+
         item {
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(12.dp)) {
-                    Row { SectionHeader("Savings Account", infoTerm = "Compound Interest") }
-                    Text("Balance: ${formatMoney(game.player.bankSavings)}")
-                    Text("Current savings APR: ~${"%.1f".format(game.economy.interestRate * 0.65)}%", style = MaterialTheme.typography.bodySmall)
-                    OutlinedTextField(value = savingsAmount, onValueChange = { savingsAmount = it }, label = { Text("Amount") }, modifier = Modifier.fillMaxWidth())
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = { savingsAmount.toDoubleOrNull()?.let { viewModel.applyResult(PlayerActions.depositSavings(game.player, it)) } }) { Text("Deposit") }
-                        Button(onClick = { savingsAmount.toDoubleOrNull()?.let { viewModel.applyResult(PlayerActions.withdrawSavings(game.player, it)) } }) { Text("Withdraw") }
+                    SectionHeader("Savings", infoTerm = "Compound Interest")
+                    Text("Balance: ${formatMoney(player?.bankSavings ?: 0.0)}")
+                    OutlinedTextField(value = savingsAmount, onValueChange = { savingsAmount = it }, label = { Text("Amount") }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
+                    Row(Modifier.padding(top = 8.dp)) {
+                        Button(onClick = { savingsAmount.toDoubleOrNull()?.let { viewModel.depositSavings(it) } }) { Text("Deposit") }
+                        OutlinedButton(onClick = { savingsAmount.toDoubleOrNull()?.let { viewModel.withdrawSavings(it) } }, modifier = Modifier.padding(start = 8.dp)) { Text("Withdraw") }
                     }
                 }
             }
@@ -54,40 +56,63 @@ fun BankScreen(viewModel: GameViewModel) {
         item {
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(12.dp)) {
-                    SectionHeader("Personal Loans", infoTerm = "Interest Rate")
-                    Text("Market rate right now: ~${"%.1f".format(game.economy.interestRate + 4.0)}% APR for a personal loan")
-                    OutlinedTextField(value = loanAmount, onValueChange = { loanAmount = it }, label = { Text("Amount") }, modifier = Modifier.fillMaxWidth())
-                    Button(onClick = {
-                        loanAmount.toDoubleOrNull()?.let {
-                            viewModel.applyResult(PlayerActions.takePersonalLoan(game.player, it, game.economy.interestRate + 4.0, 24))
-                        }
-                    }) { Text("Borrow (24 months)") }
-                }
-            }
-        }
-
-        items(game.player.loans) { loan ->
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(10.dp)) {
-                    Text("${loan.type} loan: ${formatMoney(loan.principalRemaining)} remaining")
-                    Text("APR ${"%.1f".format(loan.annualRate)}% • payment ${formatMoney(loan.monthlyPayment)}/mo • ${loan.termMonthsRemaining} months left")
-                    var payoff by remember { mutableStateOf("") }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedTextField(value = payoff, onValueChange = { payoff = it }, label = { Text("Extra payment") }, modifier = Modifier.weight(1f))
-                        Button(onClick = { payoff.toDoubleOrNull()?.let { viewModel.applyResult(PlayerActions.repayLoanEarly(game.player, loan.id, it)) } }) { Text("Pay down") }
+                    SectionHeader("Personal Loan")
+                    OutlinedTextField(value = loanAmount, onValueChange = { loanAmount = it }, label = { Text("Amount") }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
+                    Row(Modifier.padding(top = 8.dp)) {
+                        Button(onClick = { loanAmount.toDoubleOrNull()?.let { viewModel.takePersonalLoan(it, 9.0, 24) } }) { Text("Take loan (9% APR, 24mo)") }
                     }
                 }
             }
         }
 
-        item { SectionHeader("Lifestyle", infoTerm = "Inflation") }
-        item {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                LifestyleTier.entries.forEach { tier ->
-                    Row {
-                        Chip(label = "${tier.displayName} — ${formatMoney(tier.monthlyCost)}/mo", selected = tier == game.player.lifestyleTier) {
-                            viewModel.applyResult(PlayerActions.setLifestyle(game.player, tier))
+        if (!player?.loans.isNullOrEmpty()) {
+            items(player!!.loans) { loan ->
+                Card(Modifier.fillMaxWidth()) {
+                    Row(Modifier.padding(12.dp).fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Column {
+                            Text("${loan.type} — ${formatMoney(loan.principalRemaining)} left")
+                            Text("${formatMoney(loan.monthlyPayment)}/mo", style = MaterialTheme.typography.labelSmall)
                         }
+                        TextButton(onClick = { viewModel.repayPersonalLoan(loan.id, loan.monthlyPayment * 3) }) { Text("Pay extra") }
+                    }
+                }
+            }
+        }
+
+        item {
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(12.dp)) {
+                    SectionHeader("Real Estate", infoTerm = "Diversification")
+                    val price = (markets?.housingPriceIndex ?: 100.0) / 100.0 * 220_000
+                    Text("Standard unit: ~${formatMoney(price)} (20% down = ${formatMoney(price * 0.2)})")
+                    Button(onClick = { viewModel.buyProperty(0.2, 6.5) }, modifier = Modifier.padding(top = 8.dp)) { Text("Buy with 20% down") }
+                }
+            }
+        }
+
+        if (!player?.properties.isNullOrEmpty()) {
+            items(player!!.properties) { property ->
+                Card(Modifier.fillMaxWidth()) {
+                    Row(Modifier.padding(12.dp).fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Column {
+                            Text("Bought at ${formatMoney(property.purchasePrice)}")
+                            Text("Mortgage ${formatMoney(property.mortgageBalance)} • Rent ${formatMoney(property.monthlyRentIncome)}/mo", style = MaterialTheme.typography.labelSmall)
+                        }
+                        TextButton(onClick = { viewModel.sellProperty(property.id) }) { Text("Sell") }
+                    }
+                }
+            }
+        }
+
+        item {
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(12.dp)) {
+                    SectionHeader("Foreign Currency")
+                    Text("Exchange rate: ${"%.3f".format(markets?.exchangeRate ?: 1.0)} • Holdings: ${"%.2f".format(player?.foreignCurrencyHoldings ?: 0.0)}")
+                    OutlinedTextField(value = currencyAmount, onValueChange = { currencyAmount = it }, label = { Text("Amount (local $)") }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
+                    Row(Modifier.padding(top = 8.dp)) {
+                        Button(onClick = { currencyAmount.toDoubleOrNull()?.let { viewModel.buyForeignCurrency(it) } }) { Text("Buy FX") }
+                        OutlinedButton(onClick = { currencyAmount.toDoubleOrNull()?.let { viewModel.sellForeignCurrency(it) } }, modifier = Modifier.padding(start = 8.dp)) { Text("Sell FX") }
                     }
                 }
             }

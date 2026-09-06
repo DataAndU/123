@@ -14,7 +14,11 @@ function broadcastPresence(io: Server) {
 
 export function attachSocketHandlers(io: Server) {
   io.use((socket, next) => {
-    const token = socket.handshake.auth?.token as string | undefined;
+    // Accept the token either via the standard handshake.auth (web/JS clients)
+    // or a `token` query param (used by the Android client's socket.io-client,
+    // whose Java API makes the query string far more reliable to set than
+    // the auth handshake object across library versions).
+    const token = (socket.handshake.auth?.token as string | undefined) ?? (socket.handshake.query?.token as string | undefined);
     if (!token) return next(new Error('Missing auth token'));
     try {
       const payload = verifyToken(token);

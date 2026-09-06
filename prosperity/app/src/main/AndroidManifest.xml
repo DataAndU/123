@@ -2,11 +2,11 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <!--
-      Prosperity needs zero permissions. It has no networking code at all
-      (no android.permission.INTERNET anywhere below), and save export/import
-      goes through the Storage Access Framework document picker, which needs
-      no storage permission on API 26+.
+      Prosperity Online talks to the Prosperity server over HTTPS/WebSocket
+      and verifies real-money coin purchases through Google Play Billing.
     -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <application
         android:name=".core.ProsperityApp"
