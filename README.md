@@ -65,6 +65,19 @@ fully usable (just empty) without it:
   system Settings) — for the music "now playing" history module.
 - `POST_NOTIFICATIONS` — local task/medicine reminder notifications.
 
+Two more permissions show up in the *built APK* that aren't in the app's own
+source manifest, both injected by libraries and both unrelated to
+networking: `WAKE_LOCK`, `RECEIVE_BOOT_COMPLETED`, and `FOREGROUND_SERVICE`
+come from WorkManager's own manifest (used internally to run and
+reschedule local reminder jobs reliably) — this is standard for any app
+using WorkManager and cannot be removed without breaking reminders.
+ML Kit's transitive `vision-internal-vkp` library separately injects
+`INTERNET` and `ACCESS_NETWORK_STATE` (for Google-side telemetry on the
+inference pipeline, not for the on-device inference itself); those two
+*are* explicitly stripped in `AndroidManifest.xml` via `tools:node="remove"`
+so the shipped APK has zero network-capable permissions — verified with
+`aapt dump badging` against the built debug APK.
+
 ## Architecture
 
 Plain, dependency-injection-framework-free Kotlin + Jetpack Compose:
@@ -111,12 +124,15 @@ Minimum SDK 26 (Android 8.0), target/compile SDK 34.
 - **UI strings are in English** in this pass; the architecture (Compose +
   `strings.xml`) supports adding a `values-ta/` resource set for Tamil
   localization as a follow-up.
-- **Not yet run on a device/emulator in this environment** — there was no
-  Android SDK/emulator available to build and manually test against. The
-  code was written and reviewed carefully against the real Android/Jetpack
-  APIs it calls, and `./gradlew wrapper` was used to generate a real Gradle
-  wrapper, but treat this as an unverified-by-execution first cut: build it
-  in Android Studio and exercise each screen before shipping.
+- **Compiles and packages cleanly, but has not been run on a device or
+  emulator.** A real Android SDK was installed in this environment and
+  `./gradlew assembleDebug` produces a working, installable
+  `app-debug.apk` with zero compile errors (the manifest was even caught
+  and fixed for a real issue this way — see above). There was no
+  emulator/device available here to actually launch it and click through
+  each screen, so treat the debug APK as "builds clean, UI/runtime
+  behavior unverified" rather than fully tested — install it on a device
+  and exercise each module before relying on it.
 
 ## Privacy summary
 

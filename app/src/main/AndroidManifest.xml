@@ -30,6 +30,18 @@
     <!-- Local reminder notifications -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!--
+      ML Kit's transitive "vision-internal-vkp" library declares INTERNET and
+      ACCESS_NETWORK_STATE in its own manifest (used for Google-side telemetry
+      on the on-device pipeline, never for the actual label/text inference,
+      which runs fully offline from the bundled model artifacts this app
+      depends on). They are explicitly stripped here so the final merged
+      manifest — and therefore the OS-enforced sandbox — never grants this
+      app network access.
+    -->
+    <uses-permission android:name="android.permission.INTERNET" tools:node="remove" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" tools:node="remove" />
+
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
     <uses-feature android:name="android.hardware.location" android:required="false" />
