@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">Gemma Assistant</string>
+    <string name="accessibility_service_label">Gemma Assistant Phone Control</string>
+    <string name="accessibility_service_description">Lets Gemma Assistant read what\'s on screen and tap things, open apps, and navigate (home/back/screenshot/lock) when you ask it to. Everything runs on this device — nothing is sent anywhere except through the separate, off-by-default internet tool.</string>
+</resources>

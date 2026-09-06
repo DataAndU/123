@@ -1,0 +1,122 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!--
+      Gemma Assistant is a personal AI agent built around a local Gemma 3n
+      (or similar) model you supply yourself — there is no bundled model and
+      no download step. Every capability below is opt-in and independently
+      revocable from Settings.
+    -->
+
+    <!-- Voice chat + wake word (on-device speech recognition, TTS) -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+    <!-- Local notifications: reminders-style, wake-word listening status, proactive suggestions -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Whole-phone control: calls, texts, contact lookup for call-by-name -->
+    <uses-permission android:name="android.permission.CALL_PHONE" />
+    <uses-permission android:name="android.permission.SEND_SMS" />
+    <uses-permission android:name="android.permission.READ_SMS" />
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
+
+    <!-- Screen brightness control — special permission granted via Settings -->
+    <uses-permission
+        android:name="android.permission.WRITE_SETTINGS"
+        tools:ignore="ProtectedPermissions" />
+
+    <!-- Always-listening wake word runs as a foreground service with a persistent notification -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <!--
+      The agent's internet tool is the only network-capable code path in
+      this app. INTERNET is a "normal" permission Android grants silently at
+      install with no runtime prompt, so the real gate is entirely in-app:
+      AssistantSettingsStore.isInternetAccessEnabled, off by default, behind
+      an explicit warning dialog in Settings.
+    -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
+
+    <!--
+      Android 11+ package visibility: needed for "open <app>" to see every
+      launchable app via PackageManager.queryIntentActivities, without the
+      much broader QUERY_ALL_PACKAGES permission.
+    -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
+
+    <application
+        android:name=".core.GemmaAssistantApp"
+        android:allowBackup="false"
+        android:fullBackupContent="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:theme="@style/Theme.GemmaAssistant"
+        android:supportsRtl="true">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:theme="@style/Theme.GemmaAssistant">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!--
+          The "whole phone" control surface — reads on-screen text and
+          performs taps/global navigation only while manually enabled in
+          system Settings. Android requires that manual step for every
+          Accessibility Service; no app can turn this on for itself.
+        -->
+        <service
+            android:name=".control.AgentAccessibilityService"
+            android:exported="true"
+            android:label="@string/accessibility_service_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
+
+        <!--
+          Always-listening wake word. A foreground service so the background
+          microphone use is always visible via a persistent notification with
+          a one-tap "Stop listening" action.
+        -->
+        <service
+            android:name=".assistant.WakeWordService"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
+
+        <receiver
+            android:name=".system.BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Handles Allow/Deny taps on a background agent-confirmation notification. -->
+        <receiver
+            android:name=".llm.ConfirmationReceiver"
+            android:exported="false" />
+
+    </application>
+</manifest>

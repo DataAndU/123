@@ -1,0 +1,6 @@
+<resources>
+    <color name="gemma_primary">#7C4DFF</color>
+    <color name="gemma_secondary">#1DE9B6</color>
+    <color name="gemma_background_dark">#0D0F1A</color>
+    <color name="gemma_surface_dark">#181A28</color>
+</resources>
