@@ -9,6 +9,7 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.minijarvis.app.core.AppContainer
 import com.minijarvis.app.core.MiniJarvisApp
+import com.minijarvis.app.llm.ConfirmationReceiver
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -36,6 +37,36 @@ class WakeWordService : Service() {
             wakeWord = WAKE_WORD,
             onWakeWordDetected = { remainder -> handleWake(remainder) }
         )
+        scope.launch {
+            container.confirmationGate.pending.collect { request ->
+                if (request != null) postConfirmationNotification(request.id, request.title, request.description)
+                else NotificationManagerCompat.from(this@WakeWordService).cancel(ConfirmationReceiver.NOTIFICATION_ID)
+            }
+        }
+    }
+
+    private fun postConfirmationNotification(requestId: String, title: String, description: String) {
+        fun responseIntent(approved: Boolean) = PendingIntent.getBroadcast(
+            this,
+            if (approved) 1 else 2,
+            Intent(this, ConfirmationReceiver::class.java).apply {
+                action = ConfirmationReceiver.ACTION_RESPOND
+                putExtra(ConfirmationReceiver.EXTRA_REQUEST_ID, requestId)
+                putExtra(ConfirmationReceiver.EXTRA_APPROVED, approved)
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val notification = NotificationCompat.Builder(this, MiniJarvisApp.WAKE_WORD_CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.ic_dialog_alert)
+            .setContentTitle(title)
+            .setContentText(description)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(description))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setAutoCancel(true)
+            .addAction(0, "Allow", responseIntent(true))
+            .addAction(0, "Deny", responseIntent(false))
+            .build()
+        NotificationManagerCompat.from(this).notify(ConfirmationReceiver.NOTIFICATION_ID, notification)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {

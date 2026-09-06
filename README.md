@@ -1,15 +1,21 @@
 # Mini JARVIS
 
-A modular, fully offline, privacy-first personal assistant for Android. Every
-feature runs on-device; there is no backend server, no cloud storage, and no
-`android.permission.INTERNET` declared anywhere in the app.
+A modular, privacy-first personal assistant for Android. There is no backend
+server and no cloud storage — every module runs on-device, and that was true
+with zero exceptions until the optional AI agent's internet tool (see below),
+which is the one deliberate, clearly-gated exception to an otherwise offline
+app. If you never load a local model, nothing about this app's network
+behavior has changed: it still opens no socket, ever.
 
-## Why this is actually offline
+## Why almost everything here is still offline
 
-- **No `INTERNET` permission.** It is not declared in `AndroidManifest.xml`.
-  Android enforces this at the OS/network layer — without the permission,
-  the app process cannot open a socket at all, regardless of what any
-  library tries to do.
+- **`INTERNET` is declared, but gated entirely in-app.** Unlike the dangerous
+  permissions below (camera, mic, SMS, ...), Android grants `INTERNET`
+  silently at install with no runtime prompt of its own — so the real gate
+  is `AssistantSettingsStore.isInternetAccessEnabled`, off by default, and
+  `net/WebFetchTool.kt` is the *only* code path in the app that ever opens a
+  socket. See *Local AI agent* below for exactly what it does and how it's
+  bounded.
 - **Encrypted local database.** All structured data (expenses, food, meds,
   weight, habits, tasks, chat, and cached system data) lives in a single
   [SQLCipher](https://www.zetetic.net/sqlcipher/)-encrypted Room database
@@ -33,32 +39,89 @@ feature runs on-device; there is no backend server, no cloud storage, and no
   given device's platform recognizer has no offline model installed, voice
   input will fail cleanly rather than the app silently going online — see
   *Known limitations* below.
-- **The optional local LLM also never touches the network** — see the next
-  section for exactly what it is and isn't.
-
 ## Local AI agent (optional, off by default)
 
 By default the assistant is the original rule-based parser
-(`assistant/IntentParser.kt`) — instant, zero setup, no model file. If you
-want it to genuinely understand free-form phrasing and chain several actions
-from one request, you can upgrade it with a real on-device language model:
+(`assistant/IntentParser.kt`) — instant, zero setup, no model file, and it
+never touches a file outside its own database or the network. If you want it
+to genuinely understand free-form phrasing, chain several actions from one
+request, and reach beyond this app's own trackers into your files and the
+web, you can upgrade it with a real on-device language model:
 
 1. Convert or download a small instruction-tuned model into Google's
    LiteRT/MediaPipe `.task` format (their model-conversion tooling supports
-   models like a quantized Gemma). This app cannot do this step for you —
-   fetching a model would need the `INTERNET` permission it deliberately
-   never declares, so you get the file yourself, on whatever machine you
-   like, however you like.
+   models like a quantized Gemma — Gemma 3n is what this was built and
+   tested against). This app cannot do this step for you — fetching a model
+   itself would be exactly the kind of silent network use this app avoids —
+   so you get the file yourself, on whatever machine you like, however you
+   like.
 2. In Mini JARVIS, go to **Settings → Local AI model** and import the
    `.task` file (a normal Storage Access Framework file picker — no storage
    permission needed). It's copied into the app's private storage, then you
    tap **Load**.
 3. From then on, `llm/AgentOrchestrator.kt` prompts the model with a fixed
-   tool catalog (every capability in this README — trackers, calls/texts,
-   system controls, screen control) and executes however many tool calls it
-   decides to make, in order, through the *exact same* `executeIntent()`
-   path the rule-based parser uses — same permission checks, same fallback
-   messages, whether a request was matched by regex or decided by the model.
+   tool catalog — every tracker/phone/system/screen capability in this
+   README, plus two new categories described below — and executes however
+   many tool calls it decides to make, in order. Tracker/phone/system tools
+   run through the *exact same* `executeIntent()` path the rule-based parser
+   uses, so permission checks and fallback messages behave identically
+   whether a request was matched by regex or decided by the model.
+
+### File access (agent-only, needs a folder grant)
+
+`files/FileAccessManager.kt` uses Android's Storage Access Framework — you
+pick a folder (up to and including the device's top-level storage volume) in
+Android's own folder picker from **Settings → Agent file access**, which
+persists a scoped, revocable grant without the invasive
+`MANAGE_EXTERNAL_STORAGE` special permission. Once granted:
+- **Reads are unrestricted**: `list_files`, `search_files`, and `read_file`
+  execute immediately, no prompt per call — that's what granting read access
+  means here, and matching how you asked this to work.
+- **Writes and deletes always ask first, with no way to turn that off**:
+  `write_file` and `delete_file` show you exactly what's about to happen and
+  require an explicit Allow before they run, via `llm/ConfirmationGate.kt`.
+- Every read and write is recorded in **Settings → Recent agent activity**
+  (`data/AgentActivityLogEntity.kt`) as a plain, local, on-device audit
+  trail — not a live prompt, just an honest record you can check afterward.
+
+### Internet access (agent-only, off by default, needs an explicit warning acknowledged)
+
+`net/WebFetchTool.kt` is the one and only network-capable code path in this
+app. It's gated by `AssistantSettingsStore.isInternetAccessEnabled`
+(off by default) plus a warning dialog in **Settings → Internet access
+(agent)** that must be explicitly acknowledged before the switch takes
+effect — because unlike the runtime-permission-gated features elsewhere in
+this app, `INTERNET` itself is silently granted at install with no OS
+prompt, so this in-app gate is the *only* thing standing between "off" and
+"on." Once on:
+- **GET requests run immediately** (per explicit choice: fast, uninterrupted
+  browsing/API reads over per-request prompts).
+- **Anything else (POST/PUT/DELETE) still asks first**, exactly like file
+  writes, through the same `ConfirmationGate`.
+- Every request is logged in Recent agent activity alongside file actions.
+
+**The real risk this combination creates, stated plainly:** an agent that
+can read arbitrary files/pages *and* freely make GET requests could, in
+principle, be tricked by something it reads (a crafted file, a malicious
+webpage) into fetching a URL that leaks information by encoding it in the
+request — this is a known class of prompt-injection risk for any agent with
+both read and network access, and free (non-confirmed) GET access is what
+was explicitly chosen over the safer "confirm every request" alternative.
+The mitigations actually built are: internet access is off by default and
+needs a deliberate, informed opt-in; every file/network action is logged for
+after-the-fact review; and no code path can silently escalate a GET into a
+mutating remote action — that always stops for a real Allow/Deny. What this
+does *not* do is inspect file/page content for injection attempts before
+acting on model output — that's a genuinely open risk if you turn this on.
+
+### Confirmation gate, and why it works from the background too
+
+`llm/ConfirmationGate.kt` is a single in-process request/response queue that
+both the Chat screen (an `AlertDialog`) and the background wake-word service
+(an actionable notification with Allow/Deny, via `llm/ConfirmationReceiver.kt`)
+watch and can resolve — whichever one you actually see is the one you tap,
+and an unanswered request times out to denied after two minutes rather than
+blocking forever.
 
 Honest constraints, not glossed over:
 - Model files run from several hundred MB to a few GB, and inference uses
@@ -69,11 +132,18 @@ Honest constraints, not glossed over:
   forgiving (anything that isn't a recognized `TOOL:` line is just treated
   as a spoken reply) but a small/aggressively-quantized model may still
   occasionally misfire on a multi-step request.
-- This was verified by confirming `com.google.mediapipe:tasks-genai`
-  resolves, compiles against real MediaPipe `LlmInference` APIs, and
-  packages (including past a genuine R8 issue with its protobuf-javalite
-  dependency, fixed in `proguard-rules.pro`) — not by running inference
-  against a real model file, since none was available in this environment.
+- Recursive file listing/search walks the granted tree with an early-exit
+  result cap, but a very large "entire device storage" grant with few early
+  matches can still mean a slow first query — there's no index.
+- `read_file`/web responses are truncated (200KB / 20K characters
+  respectively) before being handed to the model, so very large files or
+  pages will come back partial.
+- This was verified by confirming `com.google.mediapipe:tasks-genai` and
+  `androidx.documentfile` resolve, compile against their real APIs, and
+  package (including past a genuine R8 issue with MediaPipe's
+  protobuf-javalite dependency, fixed in `proguard-rules.pro`) — not by
+  running inference against a real model file or a real file/network
+  request, since no device was available in this environment.
 
 ## Proactive suggestions (optional, off by default)
 
@@ -168,7 +238,7 @@ background microphone should never be invisible.
 | Music history | same screen | `NotificationListenerService` reads *only* media-session title/artist metadata, never notification text. |
 | Reports | `Reports` | Daily/weekly/monthly aggregates computed from local data. |
 | Smart search | `Smart Search` | Natural-language-ish search (date phrases + keywords) across every module. |
-| Settings & privacy | `Settings & Privacy` | Permission status at a glance, wake word toggle, Accessibility grant, and an "erase all local data" action. |
+| Settings & privacy | `Settings & Privacy` | Permission status at a glance, wake word toggle, Accessibility grant, local AI model import, agent file/internet access grants, recent agent activity log, and an "erase all local data" action. |
 
 ## Permissions — minimal and opt-in
 
@@ -205,18 +275,19 @@ and every module remains fully usable (just doing less) without it:
 - `FOREGROUND_SERVICE` / `FOREGROUND_SERVICE_MICROPHONE` / `RECEIVE_BOOT_COMPLETED`
   — the wake-word listening service and its restart after a reboot, only
   if wake word was left on.
+- **Folder access** (Storage Access Framework, no manifest permission) —
+  agent-only, granted via **Settings → Agent file access**; without it every
+  file tool just says so and does nothing.
+- **`INTERNET` / `ACCESS_NETWORK_STATE`** — declared for the agent's internet
+  tool, but functionally inert unless you flip **Settings → Internet access
+  (agent)** on (which requires acknowledging an explicit warning first);
+  see *Local AI agent* above for the full picture, including the one real
+  risk this combination creates and what does/doesn't mitigate it.
 
-Two more permissions show up in the *built APK* that aren't requested for
-any user-facing feature, both injected by libraries and both unrelated to
-networking: `WAKE_LOCK` comes from WorkManager's own manifest (used
+One more permission shows up in the *built APK* that isn't requested for any
+user-facing feature: `WAKE_LOCK` comes from WorkManager's own manifest (used
 internally to run and reschedule local reminder jobs reliably) — standard
 for any app using WorkManager and not removable without breaking reminders.
-ML Kit's transitive `vision-internal-vkp` library separately injects
-`INTERNET` and `ACCESS_NETWORK_STATE` (for Google-side telemetry on the
-inference pipeline, not for the on-device inference itself); those two
-*are* explicitly stripped in `AndroidManifest.xml` via `tools:node="remove"`
-so the shipped APK still has zero network-capable permissions — verified
-by inspecting the merged manifest Gradle actually produced.
 
 ## Architecture
 
@@ -231,7 +302,11 @@ assistant/   Local intent parser, assistant engine, voice input/output,
 control/     AppLauncher, SystemControlManager, PhoneActionsManager,
              ContactsHelper, JarvisAccessibilityService — the "whole phone" layer
 llm/         Optional local LLM: MediaPipe LlmInference wrapper, model file
-             import/management, the tool-calling agent loop
+             import/management, the tool-calling agent loop, the
+             confirmation gate (+ its background-notification receiver)
+files/       Agent-only Storage Access Framework file access (list/search/
+             read/write/delete over a user-granted folder tree)
+net/         Agent-only internet tool — the app's only network code path
 vision/      ML Kit image analysis
 system/      Permission checks, call log / location / usage-stats / music
              listener helpers, local reminder scheduling, wake-word settings,
@@ -329,10 +404,21 @@ directly — never ship a real release that way.)
   a real (initially failing, then fixed) R8/minify pass, and a real release
   APK under 30MB — not a real inference run against an actual model file,
   and not a real hourly background check observed firing.
+- **File and internet agent access are the least-verified features in this
+  app, by necessity.** No device was available to actually grant folder
+  access, load a real model, or fire a real web request — only that
+  `androidx.documentfile`/`HttpURLConnection` compile correctly, the
+  confirmation-gate wiring compiles across both the Chat screen and the
+  background wake-word service, and the manifest carries the real
+  `INTERNET` permission and the `ConfirmationReceiver`. Test the Allow/Deny
+  flow for a file write and a non-GET request yourself before trusting it.
 
 ## Privacy summary
 
-No account, no sign-in, no analytics SDK, no crash reporter, no ad SDK, no
-`INTERNET` permission. Every byte Mini JARVIS collects is written to a
-SQLCipher-encrypted database on the device it runs on, and the in-app
-"Erase all local data" action (Settings & Privacy) permanently deletes it.
+No account, no sign-in, no analytics SDK, no crash reporter, no ad SDK. Every
+byte Mini JARVIS collects is written to a SQLCipher-encrypted database on the
+device it runs on, and the in-app "Erase all local data" action (Settings &
+Privacy) permanently deletes it. The one feature that can send data over the
+network is the optional local AI agent's internet tool — off by default,
+gated behind an explicit warning, logged every time it runs, and detailed in
+full under *Local AI agent* above; nothing else in this app ever does.

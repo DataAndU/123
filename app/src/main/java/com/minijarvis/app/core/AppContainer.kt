@@ -7,6 +7,7 @@ import com.minijarvis.app.control.AppLauncher
 import com.minijarvis.app.control.ContactsHelper
 import com.minijarvis.app.control.PhoneActionsManager
 import com.minijarvis.app.control.SystemControlManager
+import com.minijarvis.app.data.AgentActivityRepository
 import com.minijarvis.app.data.AppDatabase
 import com.minijarvis.app.data.AppUsageRepository
 import com.minijarvis.app.data.CallLogRepository
@@ -20,8 +21,11 @@ import com.minijarvis.app.data.MedicineRepository
 import com.minijarvis.app.data.MusicHistoryRepository
 import com.minijarvis.app.data.TaskRepository
 import com.minijarvis.app.data.WeightRepository
+import com.minijarvis.app.files.FileAccessManager
+import com.minijarvis.app.llm.ConfirmationGate
 import com.minijarvis.app.llm.LocalLlmEngine
 import com.minijarvis.app.llm.ModelManager
+import com.minijarvis.app.net.WebFetchTool
 import com.minijarvis.app.reports.ReportGenerator
 import com.minijarvis.app.search.SmartSearchEngine
 import com.minijarvis.app.security.PassphraseStore
@@ -55,6 +59,7 @@ class AppContainer(private val appContext: Context) {
     val appUsageRepository: AppUsageRepository by lazy { AppUsageRepository(database.appUsageDao()) }
     val musicHistoryRepository: MusicHistoryRepository by lazy { MusicHistoryRepository(database.musicPlayDao()) }
     val imageAnalysisRepository: ImageAnalysisRepository by lazy { ImageAnalysisRepository(database.imageAnalysisDao()) }
+    val agentActivityRepository: AgentActivityRepository by lazy { AgentActivityRepository(database.agentActivityLogDao()) }
 
     val callLogHelper: CallLogHelper by lazy { CallLogHelper(appContext) }
     val locationHelper: LocationHelper by lazy { LocationHelper(appContext) }
@@ -74,6 +79,11 @@ class AppContainer(private val appContext: Context) {
     val modelManager: ModelManager by lazy { ModelManager(appContext) }
     val assistantSettingsStore: AssistantSettingsStore by lazy { AssistantSettingsStore(appContext) }
 
+    /** Agent-only capabilities — unreachable unless a local model is loaded (see AssistantEngine). */
+    val fileAccessManager: FileAccessManager by lazy { FileAccessManager(appContext) }
+    val webFetchTool: WebFetchTool by lazy { WebFetchTool(assistantSettingsStore) }
+    val confirmationGate: ConfirmationGate by lazy { ConfirmationGate() }
+
     val assistantEngine: AssistantEngine by lazy {
         AssistantEngine(
             appContext = appContext,
@@ -90,7 +100,11 @@ class AppContainer(private val appContext: Context) {
             systemControlManager = systemControlManager,
             phoneActionsManager = phoneActionsManager,
             localLlmEngine = localLlmEngine,
-            assistantSettingsStore = assistantSettingsStore
+            assistantSettingsStore = assistantSettingsStore,
+            fileAccessManager = fileAccessManager,
+            webFetchTool = webFetchTool,
+            confirmationGate = confirmationGate,
+            agentActivityRepository = agentActivityRepository
         )
     }
 

@@ -113,6 +113,10 @@ dependencies {
 
     implementation("androidx.datastore:datastore-preferences:1.1.1")
 
+    // Scoped, revocable folder access for the optional file-access agent tool
+    // (Storage Access Framework) — no MANAGE_EXTERNAL_STORAGE special permission.
+    implementation("androidx.documentfile:documentfile:1.0.1")
+
     // Optional local LLM inference (Google's on-device GenAI runtime) — the
     // model weights are never bundled or downloaded by this app; the user
     // supplies a .task model file themselves via the Settings screen.

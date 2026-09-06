@@ -39,6 +39,13 @@ object AgentTools {
         - lock_screen
         - read_screen
         - tap | target=<visible text of the thing to tap>
+        - list_files | path=<folder path, optional — omit for the top level of granted storage>
+        - search_files | query=<text to match in file/folder names>
+        - read_file | path=<file path>
+        - write_file | path=<file path> | content=<text> (asks for your confirmation before it happens)
+        - delete_file | path=<file path> (asks for your confirmation before it happens)
+        - fetch_url | url=<http(s) URL> | method=<GET|POST, default GET> | body=<optional text for POST>
+          (only works if Internet access is turned on in Settings; POST/PUT/DELETE ask for confirmation first)
         - reply | text=<text>
     """.trimIndent()
 }

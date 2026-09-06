@@ -3,11 +3,17 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <!--
-      Mini JARVIS declares NO android.permission.INTERNET and NO network
-      access permission anywhere in this manifest. Every feature below is
-      backed by an on-device Android API and every permission is requested
-      at runtime, only when the user opens the matching optional module.
+      Mini JARVIS is offline-by-default: almost every feature below is backed
+      by an on-device Android API and needs no network permission at all.
+      The one exception is the optional local-AI-agent's internet tool (see
+      net/WebFetchTool.kt) — INTERNET is a "normal" permission Android grants
+      silently at install with no user-facing prompt, so the actual gate is
+      entirely in-app: AssistantSettingsStore.isInternetAccessEnabled, off by
+      default, and only switched on after an explicit warning dialog in
+      Settings. No other code path in this app ever opens a socket.
     -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <!-- Voice chat (on-device speech recognition + text-to-speech) -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
@@ -45,18 +51,6 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-
-    <!--
-      ML Kit's transitive "vision-internal-vkp" library declares INTERNET and
-      ACCESS_NETWORK_STATE in its own manifest (used for Google-side telemetry
-      on the on-device pipeline, never for the actual label/text inference,
-      which runs fully offline from the bundled model artifacts this app
-      depends on). They are explicitly stripped here so the final merged
-      manifest — and therefore the OS-enforced sandbox — never grants this
-      app network access.
-    -->
-    <uses-permission android:name="android.permission.INTERNET" tools:node="remove" />
-    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" tools:node="remove" />
 
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
@@ -149,6 +143,11 @@
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
         </receiver>
+
+        <!-- Handles Allow/Deny taps on a background agent-confirmation notification. -->
+        <receiver
+            android:name=".llm.ConfirmationReceiver"
+            android:exported="false" />
 
     </application>
 </manifest>

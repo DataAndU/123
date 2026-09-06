@@ -1,18 +1,28 @@
 package com.minijarvis.app.llm
 
 import com.minijarvis.app.assistant.AssistantIntent
+import com.minijarvis.app.data.AgentActivityRepository
+import com.minijarvis.app.files.FileAccessManager
+import com.minijarvis.app.net.WebFetchTool
 
 /**
  * The "agent" loop: prompts the local model with the tool catalog plus a bit
  * of recent conversation, parses however many TOOL calls it produced, and
- * runs each one through the exact same execution path the rule-based parser
- * uses ([executeIntent] — see AssistantEngine.executeIntent) so every
- * permission check, fallback message, and side effect behaves identically
- * whether the request was matched by regex or decided by the model.
+ * runs each one either through the same execution path the rule-based
+ * parser uses ([executeIntent] — see AssistantEngine.executeIntent, for
+ * every tracker/phone/system tool) or, for the file and internet tools that
+ * only exist in agent mode, directly here. Reads (list/search/read/GET) run
+ * immediately; writes/deletes and non-GET requests are routed through
+ * [confirmationGate] first — the one thing that must always ask, no matter
+ * how permissive the read-side access is.
  */
 class AgentOrchestrator(
     private val localLlmEngine: LocalLlmEngine,
-    private val executeIntent: suspend (AssistantIntent) -> String
+    private val executeIntent: suspend (AssistantIntent) -> String,
+    private val fileAccessManager: FileAccessManager,
+    private val webFetchTool: WebFetchTool,
+    private val confirmationGate: ConfirmationGate,
+    private val agentActivityRepository: AgentActivityRepository
 ) {
 
     suspend fun handle(userInput: String, recentHistory: String): String {
@@ -39,10 +49,89 @@ class AgentOrchestrator(
                 results.add(call.args["text"]?.takeIf { it.isNotBlank() } ?: generated.trim())
                 continue
             }
+            val fileOrNetResult = tryFileOrNetTool(call)
+            if (fileOrNetResult != null) {
+                results.add(fileOrNetResult)
+                continue
+            }
             val intent = toIntent(call)
             if (intent != null) results.add(executeIntent(intent))
         }
         return if (results.isEmpty()) generated.trim() else results.joinToString("\n")
+    }
+
+    private suspend fun tryFileOrNetTool(call: ParsedToolCall): String? {
+        fun arg(key: String) = call.args[key]
+
+        return when (call.name) {
+            "list_files" -> {
+                if (!fileAccessManager.hasAnyAccess()) return "I don't have folder access yet — grant it in Settings first."
+                val files = fileAccessManager.list(arg("path"))
+                agentActivityRepository.log("file_list", arg("path") ?: "(top level)", "${files.size} entries")
+                if (files.isEmpty()) "Nothing found there." else files.take(50).joinToString("\n") { "${if (it.isDirectory) "[folder] " else ""}${it.path}" }
+            }
+            "search_files" -> {
+                if (!fileAccessManager.hasAnyAccess()) return "I don't have folder access yet — grant it in Settings first."
+                val query = arg("query") ?: return "search_files needs a query."
+                val files = fileAccessManager.search(query)
+                agentActivityRepository.log("file_search", query, "${files.size} matches")
+                if (files.isEmpty()) "No files matching \"$query\"." else files.joinToString("\n") { it.path }
+            }
+            "read_file" -> {
+                if (!fileAccessManager.hasAnyAccess()) return "I don't have folder access yet — grant it in Settings first."
+                val path = arg("path") ?: return "read_file needs a path."
+                fileAccessManager.readText(path).fold(
+                    onSuccess = { text ->
+                        agentActivityRepository.log("file_read", path, "${text.length} chars")
+                        text
+                    },
+                    onFailure = { "Couldn't read $path: ${it.message}" }
+                )
+            }
+            "write_file" -> {
+                if (!fileAccessManager.hasAnyAccess()) return "I don't have folder access yet — grant it in Settings first."
+                val path = arg("path") ?: return "write_file needs a path."
+                val content = arg("content") ?: return "write_file needs content."
+                val approved = confirmationGate.requestConfirmation("Write file?", "Write to \"$path\"?\n\n${content.take(200)}")
+                if (!approved) return "Cancelled — you didn't approve writing to $path."
+                fileAccessManager.writeText(path, content).fold(
+                    onSuccess = {
+                        agentActivityRepository.log("file_write", path, "${content.length} chars")
+                        "Wrote $path."
+                    },
+                    onFailure = { "Couldn't write $path: ${it.message}" }
+                )
+            }
+            "delete_file" -> {
+                if (!fileAccessManager.hasAnyAccess()) return "I don't have folder access yet — grant it in Settings first."
+                val path = arg("path") ?: return "delete_file needs a path."
+                val approved = confirmationGate.requestConfirmation("Delete file?", "Permanently delete \"$path\"?")
+                if (!approved) return "Cancelled — you didn't approve deleting $path."
+                fileAccessManager.delete(path).fold(
+                    onSuccess = {
+                        agentActivityRepository.log("file_delete", path, "deleted")
+                        "Deleted $path."
+                    },
+                    onFailure = { "Couldn't delete $path: ${it.message}" }
+                )
+            }
+            "fetch_url" -> {
+                val url = arg("url") ?: return "fetch_url needs a url."
+                val method = (arg("method") ?: "GET").uppercase()
+                if (method != "GET") {
+                    val approved = confirmationGate.requestConfirmation("Send $method request?", "Send a $method request to:\n$url")
+                    if (!approved) return "Cancelled — you didn't approve the $method request to $url."
+                }
+                webFetchTool.fetch(url, method, arg("body")).fold(
+                    onSuccess = { result ->
+                        agentActivityRepository.log("web_fetch", url, "$method -> ${result.statusCode}")
+                        "[$method $url -> ${result.statusCode}]\n${result.body}"
+                    },
+                    onFailure = { "Couldn't fetch $url: ${it.message}" }
+                )
+            }
+            else -> null
+        }
     }
 
     private fun toIntent(call: ParsedToolCall): AssistantIntent? {

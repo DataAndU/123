@@ -58,11 +58,26 @@ class AssistantSettingsStore(private val context: Context) {
         context.assistantSettingsDataStore.edit { it[FLASHLIGHT_ON] = on }
     }
 
+    /**
+     * Off by default. This is the ONLY thing gating the agent's network
+     * access — INTERNET is a "normal" Android permission granted silently
+     * at install with no runtime prompt, so unlike camera/mic/SMS there is
+     * no OS-level dialog backing this up. Turning it on in Settings requires
+     * reading and acknowledging an explicit warning first.
+     */
+    val isInternetAccessEnabled: Flow<Boolean> =
+        context.assistantSettingsDataStore.data.map { it[INTERNET_ACCESS_ENABLED] ?: false }
+
+    suspend fun setInternetAccessEnabled(enabled: Boolean) {
+        context.assistantSettingsDataStore.edit { it[INTERNET_ACCESS_ENABLED] = enabled }
+    }
+
     companion object {
         private val WAKE_WORD_ENABLED = booleanPreferencesKey("wake_word_enabled")
         private val SELECTED_MODEL_FILE = stringPreferencesKey("selected_model_file")
         private val PROACTIVE_ENABLED = booleanPreferencesKey("proactive_enabled")
         private val AUTO_APPLY_SAFE_ACTIONS = booleanPreferencesKey("auto_apply_safe_actions")
         private val FLASHLIGHT_ON = booleanPreferencesKey("flashlight_on_known")
+        private val INTERNET_ACCESS_ENABLED = booleanPreferencesKey("internet_access_enabled")
     }
 }

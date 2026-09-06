@@ -15,9 +15,13 @@ import com.minijarvis.app.data.FoodRepository
 import com.minijarvis.app.data.HabitRepository
 import com.minijarvis.app.data.MedicineRepository
 import com.minijarvis.app.data.TaskRepository
+import com.minijarvis.app.data.AgentActivityRepository
 import com.minijarvis.app.data.WeightRepository
+import com.minijarvis.app.files.FileAccessManager
 import com.minijarvis.app.llm.AgentOrchestrator
+import com.minijarvis.app.llm.ConfirmationGate
 import com.minijarvis.app.llm.LocalLlmEngine
+import com.minijarvis.app.net.WebFetchTool
 import com.minijarvis.app.search.SmartSearchEngine
 import com.minijarvis.app.system.AssistantSettingsStore
 import com.minijarvis.app.system.ReminderScheduler
@@ -45,7 +49,11 @@ class AssistantEngine(
     private val systemControlManager: SystemControlManager,
     private val phoneActionsManager: PhoneActionsManager,
     private val localLlmEngine: LocalLlmEngine,
-    private val assistantSettingsStore: AssistantSettingsStore
+    private val assistantSettingsStore: AssistantSettingsStore,
+    private val fileAccessManager: FileAccessManager,
+    private val webFetchTool: WebFetchTool,
+    private val confirmationGate: ConfirmationGate,
+    private val agentActivityRepository: AgentActivityRepository
 ) {
 
     /**
@@ -54,10 +62,20 @@ class AssistantEngine(
      * [AgentOrchestrator] takes over instead — same tools, same permission
      * checks and fallbacks (both ultimately call [executeIntent]), just
      * decided by the model rather than regex, and able to chain several
-     * actions from one request.
+     * actions from one request. It's also the only path that can reach the
+     * file/internet tools at all — the rule-based parser never does, so
+     * this app's zero-network behavior is untouched unless you've loaded a
+     * model.
      */
     private val agentOrchestrator: AgentOrchestrator by lazy {
-        AgentOrchestrator(localLlmEngine, executeIntent = ::executeIntent)
+        AgentOrchestrator(
+            localLlmEngine = localLlmEngine,
+            executeIntent = ::executeIntent,
+            fileAccessManager = fileAccessManager,
+            webFetchTool = webFetchTool,
+            confirmationGate = confirmationGate,
+            agentActivityRepository = agentActivityRepository
+        )
     }
 
     suspend fun handle(userInput: String, source: String = "text"): String {

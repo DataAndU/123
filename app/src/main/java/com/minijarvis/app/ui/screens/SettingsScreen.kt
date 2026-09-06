@@ -38,6 +38,7 @@ import com.minijarvis.app.control.JarvisAccessibilityService
 import com.minijarvis.app.core.AppContainer
 import com.minijarvis.app.system.PermissionManager
 import com.minijarvis.app.system.ProactiveAgentWorker
+import com.minijarvis.app.util.TimeUtils
 import kotlinx.coroutines.launch
 import kotlin.system.exitProcess
 
@@ -55,6 +56,17 @@ fun SettingsScreen(container: AppContainer) {
     var loadedModelName by remember { mutableStateOf(container.localLlmEngine.loadedModelName()) }
     var isBusyWithModel by remember { mutableStateOf(false) }
     var modelStatusMessage by remember { mutableStateOf<String?>(null) }
+
+    var grantedFolders by remember { mutableStateOf(container.fileAccessManager.grantedRoots()) }
+    val internetAccessEnabled by container.assistantSettingsStore.isInternetAccessEnabled.collectAsState(initial = false)
+    var showInternetWarning by remember { mutableStateOf(false) }
+    val recentActivity by container.agentActivityRepository.observeRecent().collectAsState(initial = emptyList())
+
+    val folderAccessLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri: Uri? ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        container.fileAccessManager.persistAccess(uri)
+        grantedFolders = container.fileAccessManager.grantedRoots()
+    }
 
     val multiPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         refreshTick++
@@ -81,12 +93,14 @@ fun SettingsScreen(container: AppContainer) {
     ) {
         Text("Privacy & security", style = MaterialTheme.typography.titleLarge)
         Text(
-            "• No INTERNET permission is declared anywhere in this app.\n" +
+            "• Every module except the optional AI agent's internet tool works with zero network " +
+                "access — see \"Internet access\" below for exactly what that one exception is and how " +
+                "it's gated.\n" +
                 "• All data is stored in a SQLCipher-encrypted database, keyed by a passphrase " +
                 "generated once and sealed with the Android Keystore.\n" +
                 "• Cloud/device-transfer backup of app data is explicitly disabled.\n" +
-                "• Every optional module (calls, location, usage, music, camera, mic, phone control) is off " +
-                "until you grant its permission, and can be revoked at any time in system Settings.",
+                "• Every optional module (calls, location, usage, music, camera, mic, phone control, " +
+                "file access, internet access) is off until you grant it, and revocable at any time.",
             style = MaterialTheme.typography.bodyMedium
         )
 
@@ -179,9 +193,9 @@ fun SettingsScreen(container: AppContainer) {
                 "If you import a compatible local model file (a \".task\" bundle from Google's " +
                 "LiteRT/MediaPipe model conversion tooling — e.g. a small quantized Gemma model), " +
                 "it upgrades to genuinely understanding free-form requests and chaining multiple " +
-                "actions per request, entirely on-device. Mini JARVIS never downloads a model " +
-                "itself — that would need the INTERNET permission it deliberately doesn't have — " +
-                "so you find/convert one yourself and import it here. Expect a file anywhere from " +
+                "actions per request, entirely on-device. Mini JARVIS has no download feature for " +
+                "models — you find/convert one yourself (e.g. a Gemma .task file) and import it " +
+                "here. Expect a file anywhere from " +
                 "several hundred MB to a few GB, real RAM/storage use once loaded, and that this " +
                 "only works on a real arm64 device (not the debug build's typical test emulator).",
             style = MaterialTheme.typography.bodyMedium
@@ -233,6 +247,69 @@ fun SettingsScreen(container: AppContainer) {
         }
 
         Divider()
+        Text("Agent file access", style = MaterialTheme.typography.titleLarge)
+        Text(
+            "Only reachable through the local AI agent above (the rule-based assistant never touches " +
+                "files). Once granted, the agent can freely list/search/read anything under the folder(s) " +
+                "you pick — no prompt per read, since that's what \"read access\" means here. Writing or " +
+                "deleting a file is different: it always shows you exactly what and asks Allow/Deny " +
+                "first, every time, with no way to turn that off. Uses Android's own folder picker " +
+                "(Storage Access Framework) rather than the intrusive \"all files\" special permission — " +
+                "pick the top-level storage volume in the picker for the broadest access.",
+            style = MaterialTheme.typography.bodyMedium
+        )
+        if (grantedFolders.isEmpty()) {
+            Text("No folder access granted yet.", style = MaterialTheme.typography.labelSmall)
+        } else {
+            grantedFolders.forEach { uri ->
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(uri.lastPathSegment ?: uri.toString(), modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                    TextButton(onClick = {
+                        container.fileAccessManager.revokeAccess(uri)
+                        grantedFolders = container.fileAccessManager.grantedRoots()
+                    }) { Text("Revoke") }
+                }
+            }
+        }
+        Button(onClick = { folderAccessLauncher.launch(null) }) { Text("Grant folder access") }
+
+        Divider()
+        Text("Internet access (agent)", style = MaterialTheme.typography.titleLarge)
+        Text(
+            "Off by default, and the ONLY thing in this entire app that ever uses the network. Also " +
+                "only reachable through the local AI agent. Unlike camera/mic/SMS, Android grants the " +
+                "INTERNET permission silently at install with no popup of its own — this switch, and " +
+                "the warning below, are the only real gate. GET requests (reading a page/API) run " +
+                "immediately once this is on, per your choice for fast browsing; anything that sends or " +
+                "changes data (POST/PUT/DELETE) still asks Allow/Deny first, same as file writes. Every " +
+                "request is recorded in \"Recent agent activity\" below.",
+            style = MaterialTheme.typography.bodyMedium
+        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Enable internet access", modifier = Modifier.weight(1f))
+            Switch(
+                checked = internetAccessEnabled,
+                onCheckedChange = { enabled ->
+                    if (enabled) showInternetWarning = true
+                    else scope.launch { container.assistantSettingsStore.setInternetAccessEnabled(false) }
+                }
+            )
+        }
+
+        Divider()
+        Text("Recent agent activity", style = MaterialTheme.typography.titleLarge)
+        if (recentActivity.isEmpty()) {
+            Text("Nothing yet.", style = MaterialTheme.typography.labelSmall)
+        } else {
+            recentActivity.take(15).forEach { entry ->
+                Text(
+                    "${TimeUtils.formatDateTime(entry.timestampMillis)} — ${entry.kind}: ${entry.target} (${entry.detail})",
+                    style = MaterialTheme.typography.labelSmall
+                )
+            }
+        }
+
+        Divider()
         Text("Proactive suggestions", style = MaterialTheme.typography.titleLarge)
         Text(
             "Off by default. When on, a background check runs roughly hourly — cheap, rule-based " +
@@ -274,6 +351,33 @@ fun SettingsScreen(container: AppContainer) {
         Button(onClick = { showEraseConfirm = true }) {
             Text("Erase all local data")
         }
+    }
+
+    if (showInternetWarning) {
+        AlertDialog(
+            onDismissRequest = { showInternetWarning = false },
+            title = { Text("Turn on internet access?") },
+            text = {
+                Text(
+                    "This is the only feature in Mini JARVIS that ever sends or receives data over " +
+                        "the network. The local AI agent will be able to fetch web pages/APIs freely " +
+                        "when you ask it to — including content it might read from a file or another " +
+                        "page, which could try to trick it into fetching something you didn't intend. " +
+                        "Actions that change something remote (not a plain read) still ask you first, " +
+                        "and every request is logged below. Turn this on only if you understand and " +
+                        "accept that trade-off."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    scope.launch { container.assistantSettingsStore.setInternetAccessEnabled(true) }
+                    showInternetWarning = false
+                }) { Text("I understand, enable it") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showInternetWarning = false }) { Text("Cancel") }
+            }
+        )
     }
 
     if (showEraseConfirm) {

@@ -24,9 +24,10 @@ import net.sqlcipher.database.SupportFactory
         LocationVisitEntity::class,
         AppUsageEntity::class,
         MusicPlayEntity::class,
-        ImageAnalysisEntity::class
+        ImageAnalysisEntity::class,
+        AgentActivityLogEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -42,6 +43,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun appUsageDao(): AppUsageDao
     abstract fun musicPlayDao(): MusicPlayDao
     abstract fun imageAnalysisDao(): ImageAnalysisDao
+    abstract fun agentActivityLogDao(): AgentActivityLogDao
 
     companion object {
         const val DATABASE_FILE_NAME = "minijarvis_encrypted.db"

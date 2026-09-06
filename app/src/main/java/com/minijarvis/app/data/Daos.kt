@@ -168,3 +168,12 @@ interface ImageAnalysisDao {
     @Query("SELECT * FROM image_analyses WHERE labelsCsv LIKE '%' || :keyword || '%' LIMIT 50")
     suspend fun search(keyword: String): List<ImageAnalysisEntity>
 }
+
+@Dao
+interface AgentActivityLogDao {
+    @Insert suspend fun insert(entity: AgentActivityLogEntity): Long
+    @Query("SELECT * FROM agent_activity_log ORDER BY timestampMillis DESC LIMIT 500")
+    fun observeRecent(): Flow<List<AgentActivityLogEntity>>
+    @Query("DELETE FROM agent_activity_log")
+    suspend fun clearAll()
+}
