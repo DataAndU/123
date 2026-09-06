@@ -7,6 +7,7 @@ plugins {
 android {
     namespace = "com.gemmaassistant.app"
     compileSdk = 34
+    ndkVersion = "27.2.12479018"
 
     defaultConfig {
         applicationId = "com.gemmaassistant.app"
@@ -25,6 +26,21 @@ android {
         }
 
         resourceConfigurations += listOf("en")
+
+        // Bundled llama.cpp (see src/main/cpp) — the second on-device inference
+        // engine, for GGUF models, alongside MediaPipe's .task engine.
+        externalNativeBuild {
+            cmake {
+                arguments += "-DANDROID_STL=c++_shared"
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.31.6"
+        }
     }
 
     buildTypes {

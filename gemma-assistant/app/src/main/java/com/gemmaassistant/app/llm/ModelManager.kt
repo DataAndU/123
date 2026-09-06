@@ -7,14 +7,15 @@ import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
- * Imports a user-supplied local LLM model file (a `.task` bundle produced by
- * Google's LiteRT/MediaPipe model conversion tooling — e.g. a quantized
- * Gemma or similar small instruction-tuned model) into app-private storage,
- * since [LocalLlmEngine] needs a real filesystem path, not a content:// URI.
+ * Imports a user-supplied local LLM model file — either a `.task` bundle
+ * (Google's LiteRT/MediaPipe conversion tooling) or a `.gguf` file (the
+ * format most openly distributed quantized models ship as, for llama.cpp)
+ * — into app-private storage, since [LocalLlmEngine] needs a real
+ * filesystem path, not a content:// URI.
  *
- * This app never fetches a model itself — that would need the INTERNET
- * permission it deliberately never declares. The user finds/converts a
- * model on their own machine and imports the resulting file here.
+ * This app never downloads a model itself. The user finds/converts a model
+ * on their own machine (or downloads a `.gguf` some other way) and imports
+ * the resulting file here.
  */
 class ModelManager(private val context: Context) {
 

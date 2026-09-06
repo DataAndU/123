@@ -1,57 +1,61 @@
 package com.gemmaassistant.app.llm
 
 import android.content.Context
-import com.google.mediapipe.tasks.genai.llminference.LlmInference
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
- * Thin wrapper over MediaPipe's on-device LLM Inference API. This is the
- * one place a real language model runs — and it only runs at all if the
- * user has imported a `.task` model file themselves (see [ModelManager]);
- * there is no bundled model and no download, so the app's zero-INTERNET
- * guarantee is untouched by this class either way.
+ * Front door for on-device text generation. Picks the inference engine by
+ * the imported model file's extension: MediaPipe's LLM Inference API for a
+ * `.task` bundle (Gemma 3n and similar, packaged via Google's LiteRT/
+ * MediaPipe conversion tooling), or a bundled llama.cpp for a `.gguf` file
+ * (Llama, Mistral, Qwen, Phi, Gemma-GGUF, and most other openly distributed
+ * quantized models). Only one model — and one native runtime — is ever
+ * resident at a time; whichever loaded most recently is what [generate]
+ * and [isLoaded] talk to. There is no bundled model and no download in
+ * either case — the user supplies the file themselves (see [ModelManager]).
  */
-class LocalLlmEngine(private val context: Context) {
+class LocalLlmEngine(context: Context) {
 
-    @Volatile private var inference: LlmInference? = null
-    @Volatile private var loadedModelPath: String? = null
+    private val mediaPipeEngine = MediaPipeLlmEngine(context)
+    private val llamaCppEngine = LlamaCppEngine(context)
+    @Volatile private var active: LlmEngine? = null
 
-    fun isLoaded(): Boolean = inference != null
+    fun isLoaded(): Boolean = active?.isLoaded() == true
 
-    fun loadedModelName(): String? = loadedModelPath?.let { File(it).name }
+    fun loadedModelName(): String? = active?.loadedModelName()
 
-    suspend fun load(modelFile: File): Result<Unit> = withContext(Dispatchers.IO) {
-        try {
-            unload()
-            val options = LlmInference.LlmInferenceOptions.builder()
-                .setModelPath(modelFile.absolutePath)
-                .setMaxTokens(1024)
-                .build()
-            inference = LlmInference.createFromOptions(context, options)
-            loadedModelPath = modelFile.absolutePath
-            Result.success(Unit)
-        } catch (e: Exception) {
-            inference = null
-            loadedModelPath = null
-            Result.failure(e)
-        }
+    /** Which engine is currently loaded, for status display — null if none is. */
+    fun loadedEngineLabel(): String? = when (active) {
+        mediaPipeEngine -> "MediaPipe"
+        llamaCppEngine -> "llama.cpp"
+        else -> null
+    }
+
+    suspend fun load(modelFile: File): Result<Unit> {
+        val engine = engineFor(modelFile) ?: return Result.failure(
+            IllegalArgumentException("Unsupported model file \"${modelFile.name}\" — expected a .task (MediaPipe) or .gguf (llama.cpp) file")
+        )
+        unload()
+        val result = engine.load(modelFile)
+        if (result.isSuccess) active = engine
+        return result
     }
 
     fun unload() {
-        inference?.close()
-        inference = null
-        loadedModelPath = null
+        mediaPipeEngine.unload()
+        llamaCppEngine.unload()
+        active = null
     }
 
     /** Blocking generation — always call from a background dispatcher. */
-    suspend fun generate(prompt: String): Result<String> = withContext(Dispatchers.IO) {
-        val engine = inference ?: return@withContext Result.failure(IllegalStateException("No model loaded"))
-        try {
-            Result.success(engine.generateResponse(prompt))
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
+    suspend fun generate(prompt: String): Result<String> {
+        val engine = active ?: return Result.failure(IllegalStateException("No model loaded"))
+        return engine.generate(prompt)
+    }
+
+    private fun engineFor(modelFile: File): LlmEngine? = when (modelFile.extension.lowercase()) {
+        "task" -> mediaPipeEngine
+        "gguf" -> llamaCppEngine
+        else -> null
     }
 }

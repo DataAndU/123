@@ -228,17 +228,23 @@ fun SettingsScreen(container: AppContainer) {
         Text("Local AI model", style = MaterialTheme.typography.titleLarge)
         Text(
             "Without a model loaded, the assistant uses fast, zero-setup pattern matching for basic " +
-                "phone control. Import a compatible local model file (a \".task\" bundle from Google's " +
-                "LiteRT/MediaPipe model conversion tooling — Gemma 3n is what this app is built and " +
-                "tested against) to upgrade to genuinely understanding free-form requests, chaining " +
-                "multiple actions per request, and reaching the file/internet tools below — all " +
-                "entirely on-device. Gemma Assistant has no download feature for models — you find/" +
-                "convert one yourself and import it here. Expect a file anywhere from several hundred " +
-                "MB to a few GB, real RAM/storage use once loaded, and that this only works on a real " +
-                "arm64 device.",
+                "phone control. Import a compatible local model file to upgrade to genuinely " +
+                "understanding free-form requests, chaining multiple actions per request, and " +
+                "reaching the file/internet tools below — all entirely on-device. Two model formats " +
+                "work, each running through its own bundled inference engine:\n" +
+                "• \".task\" — a bundle from Google's LiteRT/MediaPipe conversion tooling (Gemma 3n is " +
+                "what this app is built and tested against), run through MediaPipe.\n" +
+                "• \".gguf\" — the format most openly distributed quantized models ship as (Llama, " +
+                "Mistral, Qwen, Phi, Gemma-GGUF, and many others), run through a bundled llama.cpp.\n" +
+                "Gemma Assistant has no download feature for models — you find/convert one yourself " +
+                "and import it here. Expect a file anywhere from several hundred MB to a few GB, real " +
+                "RAM/storage use once loaded, and that this only works on a real arm64 device.",
             style = MaterialTheme.typography.bodyMedium
         )
-        Text("Currently loaded: ${loadedModelName ?: "none (using pattern matching)"}")
+        Text(
+            loadedModelName?.let { name -> "Currently loaded: $name (${container.localLlmEngine.loadedEngineLabel()})" }
+                ?: "Currently loaded: none (using pattern matching)"
+        )
         modelStatusMessage?.let { Text(it, style = MaterialTheme.typography.labelSmall) }
         if (isBusyWithModel) CircularProgressIndicator(modifier = Modifier.padding(4.dp))
 

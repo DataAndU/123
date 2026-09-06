@@ -1,11 +1,30 @@
 # Gemma Assistant
 
 A standalone, offline-first Android app whose entire purpose is being your personal AI
-assistant, powered by an on-device Gemma model (any MediaPipe-compatible `.task` file,
-e.g. Gemma 3n). It is a separate app from Mini JARVIS — a fresh package
+assistant, powered by a real language model running entirely on-device — either a
+MediaPipe `.task` bundle (Gemma 3n and similar) or a `.gguf` file (Llama, Mistral, Qwen,
+Phi, Gemma-GGUF, and most other openly distributed quantized models) through a bundled
+llama.cpp. It is a separate app from Mini JARVIS — a fresh package
 (`com.gemmaassistant.app`), a fresh identity, and a much smaller surface: no habit/expense/
 medicine trackers, no camera vision, no location, no usage-stats dashboards. Just chat,
 voice, and full device control.
+
+## Two model formats, two bundled inference engines
+
+Rather than being tied to one model family, Gemma Assistant loads whichever engine a
+model file needs, decided purely by its extension — the rest of the app (chat, tool-calling,
+proactive suggestions) works identically either way:
+
+- **`.task`** files run through Google's MediaPipe LLM Inference API — the format Gemma 3n
+  and other LiteRT-converted models ship as.
+- **`.gguf`** files run through a bundled llama.cpp (compiled from the upstream project at
+  build time, not a separate download) — the format most openly distributed quantized
+  models are published in, covering far more model families than MediaPipe's `.task`
+  format alone: Llama, Mistral, Qwen, Phi, Gemma-GGUF, and many others.
+
+Only one model is ever loaded at a time; loading a new one automatically unloads whichever
+was active, on either engine. Neither engine is bundled with an actual model — you always
+supply the file yourself (see "Getting a model onto the device" below).
 
 ## Running as your default assistant, always in the background
 
@@ -49,9 +68,10 @@ commands, fully hands-free through voice or typed chat:
   "type hello there", "scroll down"
 - Opening any installed app by name: "open camera", "launch spotify"
 
-**Once you import and load a local Gemma `.task` model** (Settings → Local AI model), a
-tool-calling agent takes over: it understands free-form phrasing, chains multi-step
-requests ("open messages, then read my last text"), and additionally reaches:
+**Once you import and load a local model** (Settings → Local AI model — a `.task` or a
+`.gguf` file, see above), a tool-calling agent takes over: it understands free-form
+phrasing, chains multi-step requests ("open messages, then read my last text"), and
+additionally reaches:
 
 - **Your files** — list, search, read, write, and delete within any folder you explicitly
   grant it (Settings → Agent file access), via the standard Android folder picker. It never
@@ -127,28 +147,55 @@ touches your files, network, or messages).
 
 ## What's genuinely verified vs. not
 
-**Verified in this session:** the project compiles (`:app:compileDebugKotlin`), a debug
-APK builds, and a release APK builds and passes R8 minification with the proguard rules in
-this repo. The signed release APK in this delivery was built from that same successful
-`assembleRelease` output, aligned and signed for direct install.
+**Verified in this session:** the project compiles (`:app:compileDebugKotlin`), the native
+llama.cpp bridge configures and builds through a real NDK/CMake toolchain (fetching and
+compiling the pinned llama.cpp commit itself — not just a Kotlin-side compile check), a
+debug APK builds, and a release APK builds and passes R8 minification with the proguard
+rules in this repo (including the rule that keeps the JNI-facing class's native method
+names intact under obfuscation, without which loading a `.gguf` model would fail silently
+at runtime). The signed release APK in this delivery was built from that same successful
+`assembleRelease` output, aligned and signed for direct install, and stays under the ~30MB
+delivery limit (~28.5MB) despite bundling a full second inference engine.
 
 **Not verified:** this has not been run on a physical device or emulator in this
-environment (no device/emulator available here). The wake-word listener, MediaPipe LLM
-inference correctness, Accessibility Service tap/type/scroll reliability across different
-OEM UIs, voice recognition, and — especially — whether your specific phone's Settings app
-actually lists Gemma Assistant under Digital assistant app (this varies by OEM/Android
-version and cannot be confirmed without your hardware) all depend on hardware this
-environment doesn't have — please test the golden paths (a plain command, loading a model,
-granting a folder, enabling internet access, enabling Accessibility, setting it as your
-default assistant, exempting it from battery optimization) yourself after installing.
+environment (no device/emulator available here) — most importantly, no GGUF model has
+actually been loaded and run through the bundled llama.cpp on real hardware. The llama.cpp
+integration was adapted from llama.cpp's own official Android example
+(`examples/llama.android` in the upstream repo) and compiles correctly, but the JNI
+call sequence, tokenization/chat-templating correctness, and generation quality for any
+specific GGUF model are unverified beyond that. Also unverified: the wake-word listener,
+MediaPipe LLM inference correctness, Accessibility Service tap/type/scroll reliability
+across different OEM UIs, voice recognition, and — especially — whether your specific
+phone's Settings app actually lists Gemma Assistant under Digital assistant app (this
+varies by OEM/Android version and cannot be confirmed without your hardware). Please test
+the golden paths (a plain command, loading both a `.task` and a `.gguf` model, granting a
+folder, enabling internet access, enabling Accessibility, setting it as your default
+assistant, exempting it from battery optimization) yourself after installing.
 
-## Getting a Gemma model onto the device
+## Getting a model onto the device
 
-This app does not bundle a model — you bring your own `.task` file (e.g. a Gemma 3n
-variant packaged for MediaPipe LLM Inference). In Settings → Local AI model, use Import to
-copy a `.task` file from your device's storage into the app's private storage, then Load
-it. Without a loaded model, the app still works as a fully local, rule-based device-control
-assistant — the model only adds free-form understanding and the file/internet tools.
+This app does not bundle a model — you bring your own file, in either supported format:
+
+- A `.task` file (e.g. a Gemma 3n variant packaged for MediaPipe LLM Inference), or
+- A `.gguf` file (any llama.cpp-compatible quantized model — search for "GGUF" versions
+  of the model you want; most popular open models have one).
+
+In Settings → Local AI model, use Import to copy the file from your device's storage into
+the app's private storage, then Load it — Gemma Assistant picks the right engine
+automatically from the file extension. Without a loaded model, the app still works as a
+fully local, rule-based device-control assistant — the model only adds free-form
+understanding and the file/internet tools.
+
+## How the llama.cpp engine is built
+
+Rather than vendoring llama.cpp's ~100+ MB of C/C++ source into this repository, `app/src/
+main/cpp/CMakeLists.txt` fetches it from its own upstream GitHub repository at build time
+(via CMake's `FetchContent`, pinned to one exact commit for reproducibility) and compiles
+it as part of this app's native build — a normal Gradle build handles this automatically,
+with no separate setup step, though it does mean the very first build needs network access
+to clone that pinned commit (cached locally after that, like any other dependency). The
+JNI bridge in that same directory (`llama_bridge.cpp`) is adapted from llama.cpp's own
+official Android sample.
 
 ## Installing
 

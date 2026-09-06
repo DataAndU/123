@@ -21,3 +21,10 @@
 -dontwarn com.google.protobuf.ProtoPresenceCheckedField
 -dontwarn com.google.auto.value.AutoValue
 -dontwarn com.google.auto.value.AutoValue$Builder
+
+# JNI native methods are bound by their exact original name (see
+# app/src/main/cpp/llama_bridge.cpp) — R8 must never rename this class or
+# its native methods, or the JNI lookup at runtime silently fails.
+-keepclasseswithmembernames class com.gemmaassistant.app.llm.LlamaCppNative {
+    native <methods>;
+}
