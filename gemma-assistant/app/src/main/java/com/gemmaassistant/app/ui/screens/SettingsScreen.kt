@@ -1,7 +1,10 @@
 package com.gemmaassistant.app.ui.screens
 
+import android.content.Intent
 import android.net.Uri
+import android.os.PowerManager
 import android.provider.OpenableColumns
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -32,6 +35,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.gemmaassistant.app.assistant.GemmaVoiceInteractionService
 import com.gemmaassistant.app.assistant.WakeWordService
 import com.gemmaassistant.app.control.AgentAccessibilityService
 import com.gemmaassistant.app.core.AppContainer
@@ -60,8 +64,16 @@ fun SettingsScreen(container: AppContainer) {
     val internetAccessEnabled by container.assistantSettingsStore.isInternetAccessEnabled.collectAsState(initial = false)
     var showInternetWarning by remember { mutableStateOf(false) }
     val recentActivity by container.agentActivityRepository.observeRecent().collectAsState(initial = emptyList())
+    val isDefaultAssistant = remember(refreshTick) { GemmaVoiceInteractionService.isDefaultAssistant(context) }
+    val isIgnoringBatteryOptimizations = remember(refreshTick) {
+        context.getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(context.packageName)
+    }
 
     val multiPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        refreshTick++
+    }
+
+    val settingsReturnLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         refreshTick++
     }
 
@@ -141,6 +153,46 @@ fun SettingsScreen(container: AppContainer) {
         }
 
         Divider()
+        Text("Default assistant app", style = MaterialTheme.typography.titleLarge)
+        Text(
+            "Android has a dedicated slot for this — Settings → Apps → Default apps → Digital " +
+                "assistant app — the same one Google Assistant/Gemini occupies by default. Setting " +
+                "Gemma Assistant there makes the system assist gesture (long-press the home button, " +
+                "or swipe in from a bottom corner on gesture navigation) open this app's chat directly, " +
+                "from anywhere, the way ChatGPT/Claude/Gemini's own apps can when picked as your " +
+                "assistant. Some phone makers (Samsung, Xiaomi, and others with their own built-in " +
+                "assistant) hide, rename, or restrict this system screen — if it doesn't show Gemma " +
+                "Assistant as an option on your phone, that's an OEM restriction, not a bug here.",
+            style = MaterialTheme.typography.bodyMedium
+        )
+        Text("Default assistant: ${if (isDefaultAssistant) "Gemma Assistant" else "not set to Gemma Assistant"}")
+        Button(onClick = {
+            try {
+                settingsReturnLauncher.launch(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
+            } catch (e: Exception) {
+                settingsReturnLauncher.launch(Intent(Settings.ACTION_VOICE_INPUT_SETTINGS))
+            }
+        }) { Text("Open Default apps settings") }
+
+        Divider()
+        Text("Run in background", style = MaterialTheme.typography.titleLarge)
+        Text(
+            "Android aggressively kills background apps to save battery unless you exempt one from " +
+                "battery optimization. Without this, wake-word listening (below) can get silently " +
+                "stopped by the system after a while, especially with the screen off.",
+            style = MaterialTheme.typography.bodyMedium
+        )
+        Text("Battery optimization: ${if (isIgnoringBatteryOptimizations) "Gemma Assistant is exempt (recommended)" else "Gemma Assistant is restricted"}")
+        if (!isIgnoringBatteryOptimizations) {
+            Button(onClick = {
+                val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                    data = Uri.parse("package:${context.packageName}")
+                }
+                settingsReturnLauncher.launch(intent)
+            }) { Text("Allow to run unrestricted in background") }
+        }
+
+        Divider()
         Text("Wake word", style = MaterialTheme.typography.titleLarge)
         Text(
             "When on, Gemma Assistant listens in the background for you to say \"Gemma\" and then your " +
@@ -148,7 +200,8 @@ fun SettingsScreen(container: AppContainer) {
                 "restarted in a loop, so no new network permission is added for this. Trade-off: it's " +
                 "less battery-efficient than a dedicated wake-word chip/engine, and there's a brief " +
                 "gap between listening cycles. A persistent notification always shows while it's on, " +
-                "with a one-tap Stop.",
+                "with a one-tap Stop — this is also what keeps Gemma Assistant actually running in the " +
+                "background rather than just installed.",
             style = MaterialTheme.typography.bodyMedium
         )
         Row(verticalAlignment = Alignment.CenterVertically) {

@@ -7,6 +7,35 @@ e.g. Gemma 3n). It is a separate app from Mini JARVIS — a fresh package
 medicine trackers, no camera vision, no location, no usage-stats dashboards. Just chat,
 voice, and full device control.
 
+## Running as your default assistant, always in the background
+
+Two independent features make Gemma Assistant behave like a system-level assistant
+(ChatGPT/Claude/Gemini's own apps) rather than just another app you open by hand:
+
+- **Default digital assistant app.** Gemma Assistant registers a `VoiceInteractionService`,
+  which makes it selectable under Settings → Apps → Default apps → Digital assistant app —
+  the exact slot Google Assistant/Gemini occupies on stock Android. Once picked there, the
+  system's assist gesture (long-press the home button, or a bottom-corner swipe on gesture
+  navigation) opens Gemma Assistant's chat instantly from anywhere, in any app. Settings has
+  a one-tap link to that system screen, plus a live status line. Some OEMs (Samsung, Xiaomi,
+  and others that ship their own built-in assistant) hide or restrict this system picker —
+  if Gemma Assistant doesn't appear as a choice, that's a manufacturer restriction on their
+  build of Android, not something an app can work around.
+- **Actually running in the background.** The "Wake word" toggle in Settings starts a
+  foreground service with a persistent (but dismissible) notification, which is what
+  legitimately keeps the process alive between uses — Android does not allow an ordinary
+  app to run indefinitely in the background without one. Settings also has a "Run in
+  background" section with a one-tap battery-optimization exemption request, since Android
+  will otherwise eventually suspend even a foreground service's app process to save power,
+  especially with the screen off for a long time.
+
+Together, these two are the realistic Android equivalent of "always available, like the
+default assistant": there is no way for a non-system, sideloaded app to run with zero
+footprint the way a pre-installed system assistant can, but this gets as close as the
+platform allows a regular app to get, with every step visible and under your control
+(a persistent notification while listening, and an explicit system picker for the assist
+gesture) rather than anything silent.
+
 ## What it can do
 
 **Without any model loaded**, a small local rule-based parser already understands plain
@@ -106,9 +135,12 @@ this repo. The signed release APK in this delivery was built from that same succ
 **Not verified:** this has not been run on a physical device or emulator in this
 environment (no device/emulator available here). The wake-word listener, MediaPipe LLM
 inference correctness, Accessibility Service tap/type/scroll reliability across different
-OEM UIs, and voice recognition all depend on hardware and models that only exist on your
-phone — please test the golden paths (a plain command, loading a model, granting a folder,
-enabling internet access, enabling Accessibility) yourself after installing.
+OEM UIs, voice recognition, and — especially — whether your specific phone's Settings app
+actually lists Gemma Assistant under Digital assistant app (this varies by OEM/Android
+version and cannot be confirmed without your hardware) all depend on hardware this
+environment doesn't have — please test the golden paths (a plain command, loading a model,
+granting a folder, enabling internet access, enabling Accessibility, setting it as your
+default assistant, exempting it from battery optimization) yourself after installing.
 
 ## Getting a Gemma model onto the device
 
@@ -142,6 +174,8 @@ apps with Play Protect" in Play Store settings to proceed, then re-enable it aft
 | INTERNET / ACCESS_NETWORK_STATE | The optional, off-by-default web-fetch tool |
 | FOREGROUND_SERVICE (+ microphone type) | Keeping wake-word listening alive |
 | RECEIVE_BOOT_COMPLETED | Restarting wake-word listening after a reboot, if you had it enabled |
+| REQUEST_IGNORE_BATTERY_OPTIMIZATIONS | The "Run in background" button in Settings — a direct system dialog, only shown when you tap it |
+| BIND_VOICE_INTERACTION (declared on Gemma Assistant's own services, not requested by the app) | Lets the system exclusively bind these services once you pick Gemma Assistant as your Digital assistant app |
 
 No CAMERA, no location, no call-log, no usage-access, and no notification-listener
 permissions exist in this app at all — those were Mini JARVIS features deliberately left

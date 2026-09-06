@@ -31,6 +31,11 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
+    <!-- Lets Settings show the direct "exempt from battery optimization" dialog, so the
+         background wake-word/assistant service is less likely to be killed. User-initiated
+         only — see the "Run in background" button in Settings. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
     <!--
       The agent's internet tool is the only network-capable code path in
       this app. INTERNET is a "normal" permission Android grants silently at
@@ -104,6 +109,31 @@
             android:name=".assistant.WakeWordService"
             android:exported="false"
             android:foregroundServiceType="microphone" />
+
+        <!--
+          Makes Gemma Assistant selectable under Settings → Apps → Default
+          apps → Digital assistant app, the same slot Google
+          Assistant/Gemini occupies on stock Android — so the system assist
+          gesture (long-press home / corner swipe) opens this app's chat
+          instead. Purely opt-in on the user's part via that system picker;
+          nothing here runs until the user chooses it there.
+        -->
+        <service
+            android:name=".assistant.GemmaVoiceInteractionService"
+            android:exported="true"
+            android:permission="android.permission.BIND_VOICE_INTERACTION"
+            android:label="@string/app_name">
+            <intent-filter>
+                <action android:name="android.service.voice.VoiceInteractionService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.voice_interaction"
+                android:resource="@xml/voice_interaction_service" />
+        </service>
+        <service
+            android:name=".assistant.GemmaVoiceInteractionSessionService"
+            android:exported="true"
+            android:permission="android.permission.BIND_VOICE_INTERACTION" />
 
         <receiver
             android:name=".system.BootReceiver"
