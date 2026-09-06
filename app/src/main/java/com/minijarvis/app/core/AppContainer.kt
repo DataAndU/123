@@ -20,6 +20,8 @@ import com.minijarvis.app.data.MedicineRepository
 import com.minijarvis.app.data.MusicHistoryRepository
 import com.minijarvis.app.data.TaskRepository
 import com.minijarvis.app.data.WeightRepository
+import com.minijarvis.app.llm.LocalLlmEngine
+import com.minijarvis.app.llm.ModelManager
 import com.minijarvis.app.reports.ReportGenerator
 import com.minijarvis.app.search.SmartSearchEngine
 import com.minijarvis.app.security.PassphraseStore
@@ -67,6 +69,11 @@ class AppContainer(private val appContext: Context) {
     val contactsHelper: ContactsHelper by lazy { ContactsHelper(appContext) }
     val phoneActionsManager: PhoneActionsManager by lazy { PhoneActionsManager(appContext, contactsHelper) }
 
+    /** Optional — only ever does anything once the user imports and loads a model; see [ModelManager]. */
+    val localLlmEngine: LocalLlmEngine by lazy { LocalLlmEngine(appContext) }
+    val modelManager: ModelManager by lazy { ModelManager(appContext) }
+    val assistantSettingsStore: AssistantSettingsStore by lazy { AssistantSettingsStore(appContext) }
+
     val assistantEngine: AssistantEngine by lazy {
         AssistantEngine(
             appContext = appContext,
@@ -81,11 +88,11 @@ class AppContainer(private val appContext: Context) {
             searchEngine = searchEngine,
             appLauncher = appLauncher,
             systemControlManager = systemControlManager,
-            phoneActionsManager = phoneActionsManager
+            phoneActionsManager = phoneActionsManager,
+            localLlmEngine = localLlmEngine,
+            assistantSettingsStore = assistantSettingsStore
         )
     }
-
-    val assistantSettingsStore: AssistantSettingsStore by lazy { AssistantSettingsStore(appContext) }
 
     val reportGenerator: ReportGenerator by lazy {
         ReportGenerator(

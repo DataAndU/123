@@ -18,6 +18,10 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
 
+        // Drop bundled non-English string resources pulled in by libraries
+        // (AndroidX, MediaPipe, etc.) — this app's own UI is English-only anyway.
+        resourceConfigurations += listOf("en")
+
         // Nearly every Android phone sold in the last decade is arm64-v8a;
         // x86/x86_64 only exist for emulators and armeabi-v7a is only needed
         // for very old 32-bit-only devices. Restricting to arm64-v8a keeps
@@ -108,6 +112,11 @@ dependencies {
     implementation("com.google.android.gms:play-services-location:21.3.0")
 
     implementation("androidx.datastore:datastore-preferences:1.1.1")
+
+    // Optional local LLM inference (Google's on-device GenAI runtime) — the
+    // model weights are never bundled or downloaded by this app; the user
+    // supplies a .task model file themselves via the Settings screen.
+    implementation("com.google.mediapipe:tasks-genai:0.10.24")
 
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")

@@ -33,6 +33,64 @@ feature runs on-device; there is no backend server, no cloud storage, and no
   given device's platform recognizer has no offline model installed, voice
   input will fail cleanly rather than the app silently going online — see
   *Known limitations* below.
+- **The optional local LLM also never touches the network** — see the next
+  section for exactly what it is and isn't.
+
+## Local AI agent (optional, off by default)
+
+By default the assistant is the original rule-based parser
+(`assistant/IntentParser.kt`) — instant, zero setup, no model file. If you
+want it to genuinely understand free-form phrasing and chain several actions
+from one request, you can upgrade it with a real on-device language model:
+
+1. Convert or download a small instruction-tuned model into Google's
+   LiteRT/MediaPipe `.task` format (their model-conversion tooling supports
+   models like a quantized Gemma). This app cannot do this step for you —
+   fetching a model would need the `INTERNET` permission it deliberately
+   never declares, so you get the file yourself, on whatever machine you
+   like, however you like.
+2. In Mini JARVIS, go to **Settings → Local AI model** and import the
+   `.task` file (a normal Storage Access Framework file picker — no storage
+   permission needed). It's copied into the app's private storage, then you
+   tap **Load**.
+3. From then on, `llm/AgentOrchestrator.kt` prompts the model with a fixed
+   tool catalog (every capability in this README — trackers, calls/texts,
+   system controls, screen control) and executes however many tool calls it
+   decides to make, in order, through the *exact same* `executeIntent()`
+   path the rule-based parser uses — same permission checks, same fallback
+   messages, whether a request was matched by regex or decided by the model.
+
+Honest constraints, not glossed over:
+- Model files run from several hundred MB to a few GB, and inference uses
+  real RAM — this needs a real, modern arm64 device, not a debug-build
+  emulator.
+- Small on-device models are not as reliable as a large cloud model at
+  strictly following a tool-call format; `llm/AgentTools.kt`'s parser is
+  forgiving (anything that isn't a recognized `TOOL:` line is just treated
+  as a spoken reply) but a small/aggressively-quantized model may still
+  occasionally misfire on a multi-step request.
+- This was verified by confirming `com.google.mediapipe:tasks-genai`
+  resolves, compiles against real MediaPipe `LlmInference` APIs, and
+  packages (including past a genuine R8 issue with its protobuf-javalite
+  dependency, fixed in `proguard-rules.pro`) — not by running inference
+  against a real model file, since none was available in this environment.
+
+## Proactive suggestions (optional, off by default)
+
+`system/ProactiveAgentWorker.kt` runs roughly hourly in the background
+(WorkManager) and checks a handful of rules against your own local data: a
+habit not logged by evening, a daily medicine that looks skipped today, the
+flashlight left on with the battery low, and spending running well ahead of
+last month's pace at the same point in the month. Matches show up as a
+notification; if you also turn on "auto-apply safe suggestions" in Settings,
+the one genuinely safe, fully-reversible action (turning off the flashlight)
+is applied automatically instead of just suggested.
+
+This is deliberately **not** the local LLM — running a large model every
+30–60 minutes purely to check a few conditions would be a real battery cost
+for no benefit, so these checks are plain arithmetic over the same
+repositories the rest of the app already uses. The LLM upgrade above is
+reserved for when you're actively talking to the assistant.
 
 ## Mini JARVIS is a voice assistant first
 
@@ -172,10 +230,12 @@ assistant/   Local intent parser, assistant engine, voice input/output,
              wake-word listener + foreground service
 control/     AppLauncher, SystemControlManager, PhoneActionsManager,
              ContactsHelper, JarvisAccessibilityService — the "whole phone" layer
+llm/         Optional local LLM: MediaPipe LlmInference wrapper, model file
+             import/management, the tool-calling agent loop
 vision/      ML Kit image analysis
 system/      Permission checks, call log / location / usage-stats / music
              listener helpers, local reminder scheduling, wake-word settings,
-             boot receiver
+             boot receiver, the proactive background worker
 reports/     Daily/weekly/monthly aggregation
 search/      Cross-module smart search
 ui/          Compose navigation + one screen per module
@@ -200,6 +260,17 @@ directly — never ship a real release that way.)
 
 ## Known limitations (read before relying on this in production)
 
+- **The MediaPipe LLM Inference dependency adds real size and needed a real
+  proguard fix.** Its native inference engine (`libllm_inference_engine_jni.so`)
+  is the reason the R8-minified release build grew from ~19MB to ~30MB even
+  with zero model file bundled — it's pure native code, so R8/resource
+  shrinking can't touch it. R8 also failed outright the first time with
+  missing-class errors from the `protobuf-javalite` dependency and unused
+  `com.google.mediapipe.framework.image.*` (multimodal image input, which
+  this app doesn't use); both are resolved with the `-dontwarn`/`-keep`
+  rules now in `proguard-rules.pro`. This app's own English-only string
+  resources meant `resourceConfigurations += listOf("en")` could safely trim
+  every other bundled locale to stay under a 30MB threshold.
 - **Voice recognition offline coverage is device-dependent.** Android's
   `SpeechRecognizer` decides whether an offline model is actually used;
   Mini JARVIS requests it via `EXTRA_PREFER_OFFLINE` but cannot force it on
@@ -253,7 +324,11 @@ directly — never ship a real release that way.)
   Service, wake word, and call/SMS/contacts permissions all need a real
   device with real permission grants and were verified only by confirming
   the merged manifest carries the right permissions/services/receivers and
-  that the code compiles and packages — not by watching them run.
+  that the code compiles and packages — not by watching them run. The same
+  applies to the local LLM and proactive-suggestions worker: real compiles,
+  a real (initially failing, then fixed) R8/minify pass, and a real release
+  APK under 30MB — not a real inference run against an actual model file,
+  and not a real hourly background check observed firing.
 
 ## Privacy summary
 

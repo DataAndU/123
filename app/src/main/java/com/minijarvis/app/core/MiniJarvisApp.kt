@@ -33,10 +33,18 @@ class MiniJarvisApp : Application() {
                 NotificationManager.IMPORTANCE_LOW
             ).apply { description = "Shown while Mini JARVIS is listening in the background for its wake word" }
         )
+        manager.createNotificationChannel(
+            NotificationChannel(
+                PROACTIVE_CHANNEL_ID,
+                "Proactive suggestions",
+                NotificationManager.IMPORTANCE_DEFAULT
+            ).apply { description = "Things Mini JARVIS notices on its own — a habit not logged, a possible missed dose, high spending pace" }
+        )
     }
 
     companion object {
         const val REMINDER_CHANNEL_ID = "minijarvis_reminders"
         const val WAKE_WORD_CHANNEL_ID = "minijarvis_wake_word"
+        const val PROACTIVE_CHANNEL_ID = "minijarvis_proactive"
     }
 }

@@ -16,7 +16,10 @@ import com.minijarvis.app.data.HabitRepository
 import com.minijarvis.app.data.MedicineRepository
 import com.minijarvis.app.data.TaskRepository
 import com.minijarvis.app.data.WeightRepository
+import com.minijarvis.app.llm.AgentOrchestrator
+import com.minijarvis.app.llm.LocalLlmEngine
 import com.minijarvis.app.search.SmartSearchEngine
+import com.minijarvis.app.system.AssistantSettingsStore
 import com.minijarvis.app.system.ReminderScheduler
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
@@ -40,18 +43,38 @@ class AssistantEngine(
     private val searchEngine: SmartSearchEngine,
     private val appLauncher: AppLauncher,
     private val systemControlManager: SystemControlManager,
-    private val phoneActionsManager: PhoneActionsManager
+    private val phoneActionsManager: PhoneActionsManager,
+    private val localLlmEngine: LocalLlmEngine,
+    private val assistantSettingsStore: AssistantSettingsStore
 ) {
+
+    /**
+     * The rule-based parser is always available and needs zero setup. When
+     * the user has imported and loaded a local model (see [LocalLlmEngine]),
+     * [AgentOrchestrator] takes over instead — same tools, same permission
+     * checks and fallbacks (both ultimately call [executeIntent]), just
+     * decided by the model rather than regex, and able to chain several
+     * actions from one request.
+     */
+    private val agentOrchestrator: AgentOrchestrator by lazy {
+        AgentOrchestrator(localLlmEngine, executeIntent = ::executeIntent)
+    }
 
     suspend fun handle(userInput: String, source: String = "text"): String {
         chatRepository.addMessage(role = "user", content = userInput, source = source)
-        val reply = respond(userInput)
+        val reply = if (localLlmEngine.isLoaded()) {
+            val history = chatRepository.observeAll().first().takeLast(6)
+                .joinToString("\n") { "${it.role}: ${it.content}" }
+            agentOrchestrator.handle(userInput, history)
+        } else {
+            executeIntent(IntentParser.parse(userInput))
+        }
         chatRepository.addMessage(role = "assistant", content = reply, source = source)
         return reply
     }
 
-    private suspend fun respond(userInput: String): String {
-        return when (val intent = IntentParser.parse(userInput)) {
+    suspend fun executeIntent(intent: AssistantIntent): String {
+        return when (intent) {
             is AssistantIntent.Greeting ->
                 "Hi, I'm Mini JARVIS — fully offline, running only on this device. Ask me to log an expense, meal, or habit, control your phone, or search your data."
 
@@ -160,8 +183,10 @@ class AssistantEngine(
             }
 
             is AssistantIntent.ToggleFlashlight -> {
-                if (systemControlManager.setFlashlight(intent.on)) "Flashlight ${if (intent.on) "on" else "off"}."
-                else "This device doesn't seem to have a flashlight I can control."
+                if (systemControlManager.setFlashlight(intent.on)) {
+                    assistantSettingsStore.setFlashlightOnAsFarAsWeKnow(intent.on)
+                    "Flashlight ${if (intent.on) "on" else "off"}."
+                } else "This device doesn't seem to have a flashlight I can control."
             }
 
             is AssistantIntent.ToggleWifi -> handleRadioToggle("WiFi", intent.on, systemControlManager.wifiPanelIntent(), listOf("wifi", "wi-fi"))

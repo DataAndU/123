@@ -1,5 +1,7 @@
 package com.minijarvis.app.ui.screens
 
+import android.net.Uri
+import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -12,6 +14,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Divider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -34,6 +37,7 @@ import com.minijarvis.app.assistant.WakeWordService
 import com.minijarvis.app.control.JarvisAccessibilityService
 import com.minijarvis.app.core.AppContainer
 import com.minijarvis.app.system.PermissionManager
+import com.minijarvis.app.system.ProactiveAgentWorker
 import kotlinx.coroutines.launch
 import kotlin.system.exitProcess
 
@@ -44,9 +48,31 @@ fun SettingsScreen(container: AppContainer) {
     var showEraseConfirm by remember { mutableStateOf(false) }
     var refreshTick by remember { mutableStateOf(0) }
     val wakeWordEnabled by container.assistantSettingsStore.isWakeWordEnabled.collectAsState(initial = false)
+    val proactiveEnabled by container.assistantSettingsStore.isProactiveEnabled.collectAsState(initial = false)
+    val autoApplySafeActions by container.assistantSettingsStore.isAutoApplySafeActionsEnabled.collectAsState(initial = false)
+
+    var importedModels by remember { mutableStateOf(container.modelManager.listImportedModels()) }
+    var loadedModelName by remember { mutableStateOf(container.localLlmEngine.loadedModelName()) }
+    var isBusyWithModel by remember { mutableStateOf(false) }
+    var modelStatusMessage by remember { mutableStateOf<String?>(null) }
 
     val multiPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         refreshTick++
+    }
+
+    val importModelLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val fileName = queryDisplayName(context, uri) ?: "model.task"
+        isBusyWithModel = true
+        scope.launch {
+            container.modelManager.importModel(uri, fileName)
+                .onSuccess {
+                    importedModels = container.modelManager.listImportedModels()
+                    modelStatusMessage = "Imported $fileName"
+                }
+                .onFailure { modelStatusMessage = "Import failed: ${it.message}" }
+            isBusyWithModel = false
+        }
     }
 
     Column(
@@ -147,6 +173,104 @@ fun SettingsScreen(container: AppContainer) {
         }
 
         Divider()
+        Text("Local AI model (optional)", style = MaterialTheme.typography.titleLarge)
+        Text(
+            "By default the assistant uses fast, zero-setup pattern matching — no model needed. " +
+                "If you import a compatible local model file (a \".task\" bundle from Google's " +
+                "LiteRT/MediaPipe model conversion tooling — e.g. a small quantized Gemma model), " +
+                "it upgrades to genuinely understanding free-form requests and chaining multiple " +
+                "actions per request, entirely on-device. Mini JARVIS never downloads a model " +
+                "itself — that would need the INTERNET permission it deliberately doesn't have — " +
+                "so you find/convert one yourself and import it here. Expect a file anywhere from " +
+                "several hundred MB to a few GB, real RAM/storage use once loaded, and that this " +
+                "only works on a real arm64 device (not the debug build's typical test emulator).",
+            style = MaterialTheme.typography.bodyMedium
+        )
+        Text("Currently loaded: ${loadedModelName ?: "none (using pattern matching)"}")
+        modelStatusMessage?.let { Text(it, style = MaterialTheme.typography.labelSmall) }
+        if (isBusyWithModel) CircularProgressIndicator(modifier = Modifier.padding(4.dp))
+
+        Button(onClick = { importModelLauncher.launch(arrayOf("*/*")) }, enabled = !isBusyWithModel) {
+            Text("Import model file")
+        }
+
+        importedModels.forEach { file ->
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(file.name, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                if (loadedModelName == file.name) {
+                    TextButton(onClick = {
+                        container.localLlmEngine.unload()
+                        loadedModelName = null
+                        scope.launch { container.assistantSettingsStore.setSelectedModelFileName(null) }
+                    }) { Text("Unload") }
+                } else {
+                    TextButton(
+                        onClick = {
+                            isBusyWithModel = true
+                            scope.launch {
+                                container.localLlmEngine.load(file)
+                                    .onSuccess {
+                                        loadedModelName = file.name
+                                        container.assistantSettingsStore.setSelectedModelFileName(file.name)
+                                        modelStatusMessage = "Loaded ${file.name}"
+                                    }
+                                    .onFailure { modelStatusMessage = "Load failed: ${it.message}" }
+                                isBusyWithModel = false
+                            }
+                        },
+                        enabled = !isBusyWithModel
+                    ) { Text("Load") }
+                }
+                TextButton(onClick = {
+                    if (loadedModelName == file.name) {
+                        container.localLlmEngine.unload()
+                        loadedModelName = null
+                    }
+                    container.modelManager.deleteModel(file)
+                    importedModels = container.modelManager.listImportedModels()
+                }) { Text("Delete") }
+            }
+        }
+
+        Divider()
+        Text("Proactive suggestions", style = MaterialTheme.typography.titleLarge)
+        Text(
+            "Off by default. When on, a background check runs roughly hourly — cheap, rule-based " +
+                "(never the local model, to keep battery cost sane) — for things like a habit not " +
+                "logged today, a likely-missed medicine, low battery with the flashlight left on, or " +
+                "spending running ahead of last month's pace. It only ever notifies or acts on things " +
+                "already visible in your own local data.",
+            style = MaterialTheme.typography.bodyMedium
+        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Enable proactive suggestions", modifier = Modifier.weight(1f))
+            Switch(
+                checked = proactiveEnabled,
+                onCheckedChange = { enabled ->
+                    scope.launch {
+                        container.assistantSettingsStore.setProactiveEnabled(enabled)
+                        if (enabled) {
+                            if (PermissionManager.NOTIFICATIONS.isNotEmpty() && !PermissionManager.hasAll(context, PermissionManager.NOTIFICATIONS)) {
+                                multiPermissionLauncher.launch(PermissionManager.NOTIFICATIONS)
+                            }
+                            ProactiveAgentWorker.schedule(context)
+                        } else {
+                            ProactiveAgentWorker.cancel(context)
+                        }
+                    }
+                }
+            )
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Auto-apply safe suggestions (e.g. turn off a flashlight left on)", modifier = Modifier.weight(1f))
+            Switch(
+                checked = autoApplySafeActions,
+                enabled = proactiveEnabled,
+                onCheckedChange = { enabled -> scope.launch { container.assistantSettingsStore.setAutoApplySafeActionsEnabled(enabled) } }
+            )
+        }
+
+        Divider()
         Button(onClick = { showEraseConfirm = true }) {
             Text("Erase all local data")
         }
@@ -171,3 +295,9 @@ fun SettingsScreen(container: AppContainer) {
 }
 
 private fun status(granted: Boolean) = if (granted) "granted" else "not granted"
+
+private fun queryDisplayName(context: android.content.Context, uri: Uri): String? =
+    context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+        val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+        if (index >= 0 && cursor.moveToFirst()) cursor.getString(index) else null
+    }

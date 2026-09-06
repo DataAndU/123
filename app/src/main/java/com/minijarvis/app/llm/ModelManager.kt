@@ -1,0 +1,42 @@
+package com.minijarvis.app.llm
+
+import android.content.Context
+import android.net.Uri
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.File
+
+/**
+ * Imports a user-supplied local LLM model file (a `.task` bundle produced by
+ * Google's LiteRT/MediaPipe model conversion tooling — e.g. a quantized
+ * Gemma or similar small instruction-tuned model) into app-private storage,
+ * since [LocalLlmEngine] needs a real filesystem path, not a content:// URI.
+ *
+ * This app never fetches a model itself — that would need the INTERNET
+ * permission it deliberately never declares. The user finds/converts a
+ * model on their own machine and imports the resulting file here.
+ */
+class ModelManager(private val context: Context) {
+
+    private val modelsDir: File
+        get() = File(context.filesDir, "models").apply { mkdirs() }
+
+    fun listImportedModels(): List<File> = modelsDir.listFiles()?.toList().orEmpty().sortedBy { it.name }
+
+    suspend fun importModel(sourceUri: Uri, fileName: String): Result<File> = withContext(Dispatchers.IO) {
+        try {
+            val destination = File(modelsDir, sanitizeFileName(fileName))
+            context.contentResolver.openInputStream(sourceUri)?.use { input ->
+                destination.outputStream().use { output -> input.copyTo(output) }
+            } ?: return@withContext Result.failure(IllegalStateException("Could not open the selected file"))
+            Result.success(destination)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    fun deleteModel(file: File): Boolean = file.delete()
+
+    private fun sanitizeFileName(name: String): String =
+        name.replace(Regex("""[^A-Za-z0-9._-]"""), "_").ifBlank { "model.task" }
+}
