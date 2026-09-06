@@ -4,42 +4,36 @@ import android.graphics.Bitmap
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.label.ImageLabeling
 import com.google.mlkit.vision.label.defaults.ImageLabelerOptions
-import com.google.mlkit.vision.text.TextRecognition
-import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 
-data class ImageAnalysisResult(
-    val labels: List<String>,
-    val recognizedText: String?
-)
+data class ImageAnalysisResult(val labels: List<String>)
 
 /**
- * Runs image labeling and text recognition using ML Kit's bundled,
- * on-device models. These models ship inside the app APK — no model
- * download and no network call happens at analysis time.
+ * Runs image labeling using ML Kit's bundled, on-device model. The model
+ * ships inside the app APK — no model download and no network call happens
+ * at analysis time.
+ *
+ * On-device text recognition (OCR) was intentionally left out: ML Kit's
+ * bundled text-recognition artifact pulls in its OCR pipeline's native
+ * libraries, which alone add roughly 22MB to the APK. Re-adding
+ * `com.google.mlkit:text-recognition` and a `TextRecognition.getClient(...)`
+ * call here is a straightforward follow-up if that size trade-off is
+ * acceptable for a given build.
  */
 class ImageAnalyzer {
 
     private val labeler = ImageLabeling.getClient(ImageLabelerOptions.DEFAULT_OPTIONS)
-    private val textRecognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
 
     suspend fun analyze(bitmap: Bitmap): ImageAnalysisResult {
         val image = InputImage.fromBitmap(bitmap, 0)
         val labels = runCatching { labelImage(image) }.getOrElse { emptyList() }
-        val text = runCatching { recognizeText(image) }.getOrNull()?.takeIf { it.isNotBlank() }
-        return ImageAnalysisResult(labels = labels, recognizedText = text)
+        return ImageAnalysisResult(labels = labels)
     }
 
     private suspend fun labelImage(image: InputImage): List<String> = suspendCancellableCoroutine { cont ->
         labeler.process(image)
             .addOnSuccessListener { labels -> cont.resume(labels.map { it.text }) }
             .addOnFailureListener { cont.resume(emptyList()) }
-    }
-
-    private suspend fun recognizeText(image: InputImage): String = suspendCancellableCoroutine { cont ->
-        textRecognizer.process(image)
-            .addOnSuccessListener { result -> cont.resume(result.text) }
-            .addOnFailureListener { cont.resume("") }
     }
 }

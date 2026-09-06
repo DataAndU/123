@@ -17,6 +17,16 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
+
+        // Nearly every Android phone sold in the last decade is arm64-v8a;
+        // x86/x86_64 only exist for emulators and armeabi-v7a is only needed
+        // for very old 32-bit-only devices. Restricting to arm64-v8a keeps
+        // the debug APK a fraction of its multi-ABI size with no loss of
+        // compatibility on real, modern hardware. A release build intended
+        // to reach older/32-bit devices should widen this back out.
+        ndk {
+            abiFilters += listOf("arm64-v8a")
+        }
     }
 
     buildTypes {
@@ -86,9 +96,10 @@ dependencies {
     implementation("androidx.camera:camera-lifecycle:$cameraxVersion")
     implementation("androidx.camera:camera-view:$cameraxVersion")
 
-    // ML Kit — bundled, on-device models, no network calls at runtime
+    // ML Kit — bundled, on-device model, no network calls at runtime.
+    // (Text recognition was dropped: its bundled OCR pipeline native libraries
+    // alone add ~22MB, which was the deciding factor in keeping this APK small.)
     implementation("com.google.mlkit:image-labeling:17.0.9")
-    implementation("com.google.mlkit:text-recognition:16.0.1")
 
     // Background scheduling for local reminders (no network work)
     implementation("androidx.work:work-runtime-ktx:2.9.1")

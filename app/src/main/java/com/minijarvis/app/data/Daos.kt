@@ -165,6 +165,6 @@ interface ImageAnalysisDao {
     @Delete suspend fun delete(entity: ImageAnalysisEntity)
     @Query("SELECT * FROM image_analyses ORDER BY timestampMillis DESC")
     fun observeAll(): Flow<List<ImageAnalysisEntity>>
-    @Query("SELECT * FROM image_analyses WHERE labelsCsv LIKE '%' || :keyword || '%' OR recognizedText LIKE '%' || :keyword || '%' LIMIT 50")
+    @Query("SELECT * FROM image_analyses WHERE labelsCsv LIKE '%' || :keyword || '%' LIMIT 50")
     suspend fun search(keyword: String): List<ImageAnalysisEntity>
 }

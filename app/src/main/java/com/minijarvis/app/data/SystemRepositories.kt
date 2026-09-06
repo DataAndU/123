@@ -49,12 +49,11 @@ class MusicHistoryRepository(private val dao: MusicPlayDao) {
 
 class ImageAnalysisRepository(private val dao: ImageAnalysisDao) {
     fun observeAll(): Flow<List<ImageAnalysisEntity>> = dao.observeAll()
-    suspend fun add(imageFilePath: String, labels: List<String>, recognizedText: String?, atMillis: Long = TimeUtils.nowMillis()) =
+    suspend fun add(imageFilePath: String, labels: List<String>, atMillis: Long = TimeUtils.nowMillis()) =
         dao.insert(
             ImageAnalysisEntity(
                 imageFilePath = imageFilePath,
                 labelsCsv = labels.joinToString(","),
-                recognizedText = recognizedText,
                 timestampMillis = atMillis
             )
         )

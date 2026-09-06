@@ -110,13 +110,9 @@ fun CameraScreen(container: AppContainer) {
                                         val result = container.imageAnalyzer.analyze(bitmap)
                                         container.imageAnalysisRepository.add(
                                             imageFilePath = outputFile.absolutePath,
-                                            labels = result.labels,
-                                            recognizedText = result.recognizedText
+                                            labels = result.labels
                                         )
-                                        lastResultText = buildString {
-                                            append("Labels: ${result.labels.joinToString(", ").ifEmpty { "none" }}")
-                                            result.recognizedText?.let { append("\nText: $it") }
-                                        }
+                                        lastResultText = "Labels: ${result.labels.joinToString(", ").ifEmpty { "none" }}"
                                     }
                                     isAnalyzing = false
                                 }
@@ -150,7 +146,6 @@ private fun ImageAnalysisRow(entry: ImageAnalysisEntity) {
         Column(Modifier.padding(10.dp)) {
             Text(TimeUtils.formatDateTime(entry.timestampMillis), style = MaterialTheme.typography.bodySmall)
             Text("Labels: ${entry.labelsCsv.ifEmpty { "none" }}")
-            entry.recognizedText?.takeIf { it.isNotBlank() }?.let { Text("Text: $it") }
         }
     }
 }

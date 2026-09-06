@@ -21,9 +21,13 @@ feature runs on-device; there is no backend server, no cloud storage, and no
 - **Backup disabled.** `android:allowBackup="false"` plus explicit
   `data_extraction_rules.xml` exclusions block cloud backup and
   device-to-device transfer of the database, prefs, and files.
-- **On-device ML only.** Image labeling and text recognition use ML Kit's
-  *bundled* model artifacts (`image-labeling`, `text-recognition`), which
-  ship inside the APK — not the network-downloaded "unbundled" variants.
+- **On-device ML only.** Image labeling uses ML Kit's *bundled*
+  `image-labeling` model artifact, which ships inside the APK — not the
+  network-downloaded "unbundled" variant. (On-device text recognition/OCR
+  was evaluated and deliberately left out for now: ML Kit's bundled
+  `text-recognition` artifact pulls in an OCR pipeline whose native
+  libraries alone add ~22MB to the APK. See `vision/ImageAnalyzer.kt` for
+  notes on re-adding it.)
 - **Speech recognition** uses Android's `SpeechRecognizer` with
   `EXTRA_PREFER_OFFLINE`. Mini JARVIS never calls a speech API itself; if a
   given device's platform recognizer has no offline model installed, voice
@@ -35,7 +39,7 @@ feature runs on-device; there is no backend server, no cloud storage, and no
 | Module | Screen | Notes |
 |---|---|---|
 | Text & voice chat | `Chat` | Rule-based local NLU (`assistant/IntentParser.kt`) routes commands to every other module; on-device TTS/STT. |
-| Image capture & analysis | `Vision` | CameraX capture → ML Kit image labeling + text recognition, saved locally. |
+| Image capture & analysis | `Vision` | CameraX capture → ML Kit on-device image labeling, saved locally (no text/OCR — see below). |
 | Expense tracker | `Expenses` | Amount/category/note, running totals. |
 | Food tracker | `Food` | Meal type, calories, notes. |
 | Medicine tracker | `Medicine` | Medicines + taken/missed dose logs. |
@@ -101,10 +105,16 @@ Requires Android Studio (or the CLI) with the Android SDK installed —
 this repository does not bundle the SDK itself:
 
 ```
-./gradlew assembleDebug
+./gradlew assembleDebug     # fast, unminified, for local testing
+./gradlew assembleRelease   # R8-minified + shrunk resources, ~19MB
 ```
 
-Minimum SDK 26 (Android 8.0), target/compile SDK 34.
+Minimum SDK 26 (Android 8.0), target/compile SDK 34. This repo has no
+release signing config, so `assembleRelease` produces an unsigned APK —
+that's correct for a release build; sign it with your own keystore before
+distributing it. (A version of this release APK sent for testing purposes
+was temporarily signed with the debug key so it could be installed
+directly — never ship a real release that way.)
 
 ## Known limitations (read before relying on this in production)
 
@@ -121,6 +131,17 @@ Minimum SDK 26 (Android 8.0), target/compile SDK 34.
   requesting the `SCHEDULE_EXACT_ALARM` permission. Reminders may fire a
   little later under aggressive battery optimization/Doze — trading
   precision for a smaller permission footprint.
+- **No text recognition (OCR) in Vision.** Image labeling ("what's in this
+  photo") works; reading text out of a photo does not, purely because
+  bundling ML Kit's on-device OCR pipeline adds ~22MB of native libraries.
+  This was a deliberate size trade-off, not a technical limitation — adding
+  `com.google.mlkit:text-recognition` back and wiring up a
+  `TextRecognition.getClient(...)` call in `vision/ImageAnalyzer.kt` restores
+  it in a few lines if APK size isn't a constraint for your build.
+- **This app also builds an arm64-v8a-only debug APK by default**
+  (`defaultConfig.ndk.abiFilters`) to keep test builds small; a release meant
+  for older 32-bit devices should widen this back to include
+  `armeabi-v7a`/`x86`/`x86_64`.
 - **UI strings are in English** in this pass; the architecture (Compose +
   `strings.xml`) supports adding a `values-ta/` resource set for Tamil
   localization as a follow-up.

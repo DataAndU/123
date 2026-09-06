@@ -70,7 +70,7 @@ class SmartSearchEngine(
             results += SearchResult("Music", it.title, it.artist ?: "", it.timestampMillis)
         }
         imageAnalysisRepository.search(keyword).forEach {
-            results += SearchResult("Photo", it.labelsCsv, it.recognizedText ?: "", it.timestampMillis)
+            results += SearchResult("Photo", it.labelsCsv, "", it.timestampMillis)
         }
 
         val filtered = if (dateRange != null) {

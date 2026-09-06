@@ -143,6 +143,5 @@ data class ImageAnalysisEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val imageFilePath: String,
     val labelsCsv: String,
-    val recognizedText: String?,
     val timestampMillis: Long
 )
